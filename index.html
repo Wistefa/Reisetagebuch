@@ -1,0 +1,2012 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reisetagebuch</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Reisetagebuch" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#F7F4EF" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;1,700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #F7F4EF; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    textarea { resize: none; }
+    input, textarea, button { -webkit-appearance: none; appearance: none; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+    .leaflet-container { border-radius: 14px; }
+    .leaflet-attribution-flag { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+  // Demo-Daten: nur laden wenn noch keine echten Daten vorhanden
+  (function() {
+    var KEY = "reisetagebuch_trips_v1";
+    var KEY_E = "reisetagebuch_entries_v1";
+    try {
+      var existing = JSON.parse(localStorage.getItem(KEY) || '[]');
+      if (existing.length > 0) return; // echte Daten vorhanden
+    } catch(e) {}
+
+    var makePhoto = function(emoji, bg, label) {
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400">' +
+        '<rect width="600" height="400" fill="' + bg + '"/>' +
+        '<text x="300" y="200" font-size="120" text-anchor="middle" dominant-baseline="middle" font-family="Arial">' + emoji + '</text>' +
+        '<rect x="0" y="320" width="600" height="80" fill="rgba(0,0,0,0.4)"/>' +
+        '<text x="300" y="368" font-size="32" text-anchor="middle" fill="white" font-family="Arial" font-weight="bold">' + label + '</text>' +
+        '</svg>';
+      try { return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); }
+      catch(e) { return ''; }
+    };
+
+    // Fotos in IndexedDB speichern
+    var photos = [
+      { id:'demo-p1', data: makePhoto('🌿','#3d6b4f','Affenwald') },
+      { id:'demo-p2', data: makePhoto('🛕','#7a5a3a','Tempel') },
+      { id:'demo-p3', data: makePhoto('🌾','#5a7a3a','Reisterrassen') },
+    ];
+    var req = indexedDB.open("reisetagebuch_db", 1);
+    req.onupgradeneeded = function(e) { e.target.result.createObjectStore("photos", { keyPath:"id" }); };
+    req.onsuccess = function(e) {
+      var db = e.target.result;
+      var tx = db.transaction("photos", "readwrite");
+      var store = tx.objectStore("photos");
+      photos.forEach(function(p) { store.put({ id: p.id, dataUrl: p.data }); });
+    };
+
+    var trip = { id:"demo-trip-1", name:"Bali mit Juppi", destination:"Indonesien",
+      startDate:"2025-03-10", endDate:"2025-03-24", createdAt: Date.now() };
+    var entry = { id:"demo-entry-1", tripId:"demo-trip-1", date:"2025-03-14",
+      location:"Ubud, Bali", lat:-8.5069, lng:115.2625,
+      text:"Heute war ein unvergesslicher Tag in Ubud. Wir besuchten den Heiligen Affenwald – die Affen waren frech und neugierig. Kaum hatten wir das Tor passiert, sprang einer direkt auf Juppi’s Schulter.\n\nDer Tempel Pura Dalem Agung versteckt sich tief im üppigen Regenwald. Das Moos überwächst die alten Steinskulpturen, überall riecht es nach Blütenopfern und Weihrauch. Wir beobachteten eine stille Zeremonie.\n\nBeim Mittagessen in einem kleinen Warung gab es frisches Nasi Goreng mit Blick auf die terrassierten Reisfelder. Das Licht war golden wie in einem Gemälde.\n\nNachmittags besuchten wir eine traditionelle Batik-Werkstatt. Der Meister zeigte uns wie Wachs mit einem Tjanting auf den Stoff aufgetragen wird – eine Arbeit die Stunden dauert.",
+      photos:[
+        { id:"demo-p1", caption:"Im Heiligen Affenwald" },
+        { id:"demo-p2", caption:"Pura Dalem Agung Tempel" },
+        { id:"demo-p3", caption:"Tegalalang Reisterrassen" }
+      ],
+      createdAt: Date.now() };
+
+    localStorage.setItem(KEY,   JSON.stringify([trip]));
+    localStorage.setItem(KEY_E, JSON.stringify([entry]));
+  })();
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ─────────────────────────────────────────────────────
+    //  KONSTANTEN
+    // ─────────────────────────────────────────────────────
+    const STORAGE_TRIPS   = "reisetagebuch_trips_v1";
+    const STORAGE_ENTRIES = "reisetagebuch_entries_v1";
+    const STORAGE_ROUTES  = "reisetagebuch_routes_v1";
+    const DB_NAME   = "reisetagebuch_db";
+    const DB_VER    = 1;
+    const STORE     = "photos";
+
+    // ─────────────────────────────────────────────────────
+    //  INDEXEDDB  (Foto-Speicher)
+    // ─────────────────────────────────────────────────────
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VER);
+        req.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { keyPath: "id" });
+        req.onsuccess  = e => resolve(e.target.result);
+        req.onerror    = ()  => reject(req.error);
+      });
+    }
+    async function dbSavePhoto(id, dataUrl) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).put({ id, dataUrl });
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }
+    async function dbGetPhoto(id) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx  = db.transaction(STORE, "readonly");
+        const req = tx.objectStore(STORE).get(id);
+        req.onsuccess = () => res(req.result?.dataUrl || null);
+        req.onerror   = () => rej(req.error);
+      });
+    }
+    async function dbGetPhotos(ids) {
+      if (!ids.length) return {};
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx    = db.transaction(STORE, "readonly");
+        const store = tx.objectStore(STORE);
+        const result = {};
+        let pending = ids.length;
+        ids.forEach(id => {
+          const req = store.get(id);
+          req.onsuccess = () => { if (req.result) result[id] = req.result.dataUrl; if (!--pending) res(result); };
+          req.onerror   = () => { if (!--pending) res(result); };
+        });
+      });
+    }
+    async function dbDeletePhoto(id) {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }
+    async function dbGetAllPhotos() {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const req = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+        req.onsuccess = () => res(req.result || []);
+        req.onerror   = () => rej(req.error);
+      });
+    }
+    async function dbClearPhotos() {
+      const db = await openDB();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).clear();
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  LOCALSTORAGE HOOK
+    // ─────────────────────────────────────────────────────
+    function useLocalStorage(key, init) {
+      const [state, setState] = useState(() => {
+        try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : init; }
+        catch { return init; }
+      });
+      const set = v => setState(prev => {
+        const next = typeof v === "function" ? v(prev) : v;
+        try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+        return next;
+      });
+      return [state, set];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  HILFSFUNKTIONEN
+    // ─────────────────────────────────────────────────────
+    function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+    function todayISO() { return new Date().toISOString().split("T")[0]; }
+
+    function fmtLong(d) {
+      if (!d) return "";
+      return new Date(d + "T12:00:00").toLocaleDateString("de-DE",
+        { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    }
+    function fmtShort(d) {
+      if (!d) return "";
+      return new Date(d + "T12:00:00").toLocaleDateString("de-DE",
+        { day:"numeric", month:"short", year:"numeric" });
+    }
+    function fmtWeekday(d) {
+      if (!d) return "";
+      return new Date(d + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long" });
+    }
+    function fmtDayMonth(d) {
+      if (!d) return "";
+      return new Date(d + "T12:00:00").toLocaleDateString("de-DE",
+        { day:"numeric", month:"long" });
+    }
+    function fmtYear(d) {
+      if (!d) return "";
+      return new Date(d + "T12:00:00").getFullYear();
+    }
+
+    async function geocode(query) {
+      if (!query) return null;
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+        const res  = await fetch(url, { headers: { "Accept-Language": "de" } });
+        const data = await res.json();
+        if (data?.[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } catch {}
+      return null;
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  DESIGN TOKENS
+    // ─────────────────────────────────────────────────────
+    const C = {
+      bg:          "#F7F4EF",
+      card:        "#FFFFFF",
+      accent:      "#C8874A",
+      accentBg:    "#FDF3E8",
+      text:        "#1C1916",
+      textSec:     "#8A847C",
+      border:      "#EAE6E0",
+      danger:      "#D94F4F",
+    };
+
+    // ─────────────────────────────────────────────────────
+    //  UI GRUNDBAUSTEINE
+    // ─────────────────────────────────────────────────────
+    function Btn({ children, onClick, full, variant, small, danger }) {
+      const bg  = danger ? C.danger : variant === "ghost" ? "#F0EDE8" : C.accent;
+      const col = danger || variant !== "ghost" ? "#fff" : C.text;
+      return (
+        <button onClick={onClick} style={{
+          background: bg, color: col, border: "none", borderRadius: 14,
+          padding: small ? "8px 16px" : "13px 20px",
+          fontSize: small ? 13 : 15, fontWeight: 600, fontFamily: "inherit",
+          cursor: "pointer", width: full ? "100%" : "auto",
+          WebkitTapHighlightColor: "transparent", transition: "opacity .15s"
+        }}>{children}</button>
+      );
+    }
+
+    function Field({ label, children }) {
+      return (
+        <div style={{ marginBottom: 16 }}>
+          {label && <div style={{ fontSize: 11, fontWeight: 700, color: C.textSec,
+            letterSpacing: 0.7, marginBottom: 6, textTransform: "uppercase" }}>{label}</div>}
+          {children}
+        </div>
+      );
+    }
+
+    function Input({ value, onChange, placeholder, type="text", onKeyDown }) {
+      return (
+        <input type={type} value={value} onChange={e => onChange(e.target.value)}
+          placeholder={placeholder} onKeyDown={onKeyDown}
+          style={{ width:"100%", background:"#F7F4EF", border:`1px solid ${C.border}`,
+            borderRadius:12, padding:"11px 14px", fontSize:15, color:C.text,
+            outline:"none", fontFamily:"inherit" }} />
+      );
+    }
+
+    function Textarea({ value, onChange, placeholder, rows=6 }) {
+      return (
+        <textarea value={value} onChange={e => onChange(e.target.value)}
+          placeholder={placeholder} rows={rows}
+          style={{ width:"100%", background:"#F7F4EF", border:`1px solid ${C.border}`,
+            borderRadius:12, padding:"11px 14px", fontSize:15, color:C.text,
+            outline:"none", fontFamily:"inherit", lineHeight:1.75 }} />
+      );
+    }
+
+    function Sheet({ title, onClose, children }) {
+      return (
+        <div onClick={e => e.target===e.currentTarget && onClose()}
+          style={{ position:"fixed", inset:0, background:"rgba(28,25,22,0.45)",
+            zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div style={{ background:C.card, borderRadius:"24px 24px 0 0", width:"100%",
+            maxWidth:620, padding:"24px 20px",
+            paddingBottom:"calc(28px + env(safe-area-inset-bottom))",
+            maxHeight:"92vh", overflowY:"auto" }}>
+            <div style={{ display:"flex", justifyContent:"space-between",
+              alignItems:"center", marginBottom:20 }}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:21,
+                fontWeight:700, color:C.text }}>{title}</div>
+              <button onClick={onClose} style={{ background:"#F0EDE8", border:"none",
+                borderRadius:"50%", width:32, height:32, cursor:"pointer",
+                fontSize:15, color:C.textSec, display:"flex", alignItems:"center",
+                justifyContent:"center" }}>✕</button>
+            </div>
+            {children}
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  KARTEN-VORSCHAU  (Leaflet + OpenStreetMap)
+    // ─────────────────────────────────────────────────────
+    function MapPreview({ lat, lng }) {
+      const ref  = useRef(null);
+      const map  = useRef(null);
+
+      useEffect(() => {
+        if (!lat || !lng || !ref.current) return;
+        if (map.current) {
+          map.current.setView([lat, lng], 13);
+          return;
+        }
+        const m = L.map(ref.current, {
+          zoomControl: false, attributionControl: false,
+          dragging: false, scrollWheelZoom: false, doubleClickZoom: false
+        });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(m);
+        L.circleMarker([lat, lng], {
+          radius: 9, color: "#fff", weight: 2,
+          fillColor: C.accent, fillOpacity: 1
+        }).addTo(m);
+        m.setView([lat, lng], 13);
+        map.current = m;
+        return () => { if (map.current) { map.current.remove(); map.current = null; } };
+      }, [lat, lng]);
+
+      if (!lat || !lng) return null;
+      return (
+        <div ref={ref} style={{ height:170, borderRadius:14, overflow:"hidden",
+          marginTop:10, border:`1px solid ${C.border}` }} />
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  ROUTEN-KARTE  (KML-Import + Leaflet)
+    // ─────────────────────────────────────────────────────
+    function RouteMap({ tripId, entries, route, onSaveRoute }) {
+      const mapRef  = useRef(null);
+      const mapInst = useRef(null);
+      const lgRef   = useRef(null);
+      const [error, setError] = useState("");
+      const pins = entries.filter(e => e.lat && e.lng);
+
+      useEffect(() => {
+        if (!mapRef.current) return;
+        const m = L.map(mapRef.current, { zoomControl:true, attributionControl:false });
+        L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom:17 }).addTo(m);
+        mapInst.current = m;
+        lgRef.current   = L.layerGroup().addTo(m);
+        m.setView([20, 0], 2);
+        return () => { m.remove(); mapInst.current = null; lgRef.current = null; };
+      }, []);
+
+      useEffect(() => {
+        if (!mapInst.current || !lgRef.current) return;
+        const m  = mapInst.current;
+        const lg = lgRef.current;
+        lg.clearLayers();
+        const allLatLngs = [];
+
+        if (route) {
+          const gl = L.geoJSON(route, {
+            style: () => ({ color:C.accent, weight:4, opacity:0.85 }),
+            pointToLayer: (f, ll) => L.circleMarker(ll, {
+              radius:5, color:C.accent, fillColor:C.accent, fillOpacity:0.7, weight:1
+            })
+          }).addTo(lg);
+          try {
+            const b = gl.getBounds();
+            if (b.isValid()) allLatLngs.push(b.getNorthEast(), b.getSouthWest());
+          } catch {}
+        }
+
+        pins.forEach(e => {
+          const mk = L.circleMarker([e.lat, e.lng], {
+            radius:9, color:"#fff", weight:2.5, fillColor:C.accent, fillOpacity:1
+          }).addTo(lg);
+          if (e.location || e.date) mk.bindPopup(`<b>${e.location||""}</b>${e.date?"<br/>"+fmtShort(e.date):""}`);
+          allLatLngs.push(L.latLng(e.lat, e.lng));
+        });
+
+        m.invalidateSize();
+        if (allLatLngs.length > 0) {
+          setTimeout(() => { try { m.invalidateSize(); m.fitBounds(L.latLngBounds(allLatLngs), { padding:[24,24], maxZoom:13 }); } catch {} }, 50);
+        }
+      }, [route, pins.length]);
+
+      const parseAndSave = (text, format) => {
+        try {
+          const doc = new DOMParser().parseFromString(text, "text/xml");
+          const features = [];
+          if (format === "kml") {
+            doc.querySelectorAll("LineString > coordinates").forEach(el => {
+              const coords = el.textContent.trim().split(/\s+/).map(c => {
+                const p = c.split(",").map(Number);
+                return (p.length >= 2 && !isNaN(p[0]) && !isNaN(p[1])) ? [p[0], p[1]] : null;
+              }).filter(Boolean);
+              if (coords.length > 1) features.push({
+                type:"Feature", geometry:{ type:"LineString", coordinates:coords }, properties:{}
+              });
+            });
+            doc.querySelectorAll("Point > coordinates").forEach(el => {
+              const p = el.textContent.trim().split(",").map(Number);
+              if (p.length >= 2 && !isNaN(p[0]) && !isNaN(p[1])) features.push({
+                type:"Feature", geometry:{ type:"Point", coordinates:[p[0],p[1]] }, properties:{}
+              });
+            });
+          } else {
+            // GPX: getElementsByTagName ignoriert XML-Namespaces
+            const getEl = name => Array.from(doc.getElementsByTagName(name));
+            ["trkseg", "rte"].forEach(seg => {
+              getEl(seg).forEach(segEl => {
+                const tag = seg === "trkseg" ? "trkpt" : "rtept";
+                const coords = Array.from(segEl.getElementsByTagName(tag)).map(pt => {
+                  const lat = parseFloat(pt.getAttribute("lat"));
+                  const lon = parseFloat(pt.getAttribute("lon"));
+                  return (!isNaN(lat) && !isNaN(lon)) ? [lon, lat] : null;
+                }).filter(Boolean);
+                if (coords.length > 1) features.push({
+                  type:"Feature", geometry:{ type:"LineString", coordinates:coords }, properties:{}
+                });
+              });
+            });
+            getEl("wpt").forEach(pt => {
+              const lat = parseFloat(pt.getAttribute("lat"));
+              const lon = parseFloat(pt.getAttribute("lon"));
+              if (!isNaN(lat) && !isNaN(lon)) features.push({
+                type:"Feature", geometry:{ type:"Point", coordinates:[lon, lat] }, properties:{}
+              });
+            });
+          }
+          if (features.length === 0) {
+            setError(`Keine Route in der ${format.toUpperCase()}-Datei gefunden.`);
+            return;
+          }
+          onSaveRoute(tripId, { type:"FeatureCollection", features, _source: format==="gpx" ? text : null, _format: format });
+        } catch { setError(`${format.toUpperCase()}-Datei konnte nicht gelesen werden.`); }
+      };
+
+      const handleFile = (ev, format) => {
+        const file = ev.target.files[0]; if (!file) return;
+        setError("");
+        const reader = new FileReader();
+        reader.onload = e => { parseAndSave(e.target.result, format); ev.target.value = ""; };
+        reader.readAsText(file);
+      };
+
+      const openGPX = async () => {
+        if (!route?._source) return;
+        const blob = new Blob([route._source], { type:"application/gpx+xml" });
+        const file = new File([blob], "route.gpx", { type:"application/gpx+xml" });
+        if (navigator.canShare && navigator.canShare({ files:[file] })) {
+          try { await navigator.share({ files:[file], title:"Route" }); return; } catch {}
+        }
+        // Fallback: normaler Download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = "route.gpx";
+        a.click(); URL.revokeObjectURL(url);
+      };
+
+      const btnStyle = { display:"inline-flex", alignItems:"center", gap:8, cursor:"pointer",
+        background:C.accentBg, border:`1px dashed ${C.accent}`, borderRadius:10,
+        padding:"8px 14px", fontSize:13, color:C.accent, fontWeight:600, userSelect:"none" };
+
+      return (
+        <div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:12 }}>
+            <label style={btnStyle}>
+              🗺️ KML importieren
+              <input type="file" accept=".kml" style={{ display:"none" }}
+                onChange={ev => handleFile(ev, "kml")} />
+            </label>
+            <label style={btnStyle}>
+              📍 GPX importieren
+              <input type="file" accept=".gpx" style={{ display:"none" }}
+                onChange={ev => handleFile(ev, "gpx")} />
+            </label>
+            {route?._source && (
+              <button onClick={openGPX} style={{...btnStyle,
+                background:C.accentBg, border:`1px solid ${C.accent}` }}>
+                📤 In MapOut öffnen
+              </button>
+            )}
+            {route && (
+              <button onClick={() => onSaveRoute(tripId, null)} style={{
+                background:"none", border:"none", color:C.danger, fontSize:13,
+                cursor:"pointer", fontFamily:"inherit", fontWeight:600,
+                marginLeft:"auto", alignSelf:"center" }}>
+                Route entfernen
+              </button>
+            )}
+          </div>
+          {error && <div style={{ color:C.danger, fontSize:13, marginBottom:10 }}>{error}</div>}
+          <div ref={mapRef} style={{ height:420, borderRadius:14, overflow:"hidden",
+            border:`1px solid ${C.border}`, marginBottom:12 }} />
+          {pins.length > 0 && (
+            <div style={{ fontSize:12, color:C.textSec, marginBottom:12 }}>
+              {pins.length} {pins.length===1?"Eintrag":"Einträge"} mit GPS-Koordinaten eingezeichnet
+            </div>
+          )}
+          {!route && pins.length === 0 && (
+            <div style={{ textAlign:"center", padding:"20px 0 8px", color:C.textSec }}>
+              <div style={{ fontSize:13 }}>Noch keine Route oder GPS-Einträge vorhanden</div>
+            </div>
+          )}
+          <div style={{ padding:14, background:C.accentBg, borderRadius:12,
+            border:`1px solid ${C.border}`, fontSize:12, color:C.textSec, lineHeight:1.7 }}>
+            <b style={{ color:C.text }}>Route aus Google Maps exportieren:</b><br/>
+            <b>KML:</b> maps.google.com/mymaps → Route erstellen → ⋮ → In KML exportieren<br/>
+            <b>GPX:</b> Google Maps Timeline → Einstellungen → Standortverlauf exportieren
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  FOTO-ITEM  (Bild + Bildunterschrift)
+    // ─────────────────────────────────────────────────────
+    function PhotoItem({ meta, dataUrl, onDelete, onCaption }) {
+      const [editing, setEditing] = useState(false);
+      const [cap, setCap]         = useState(meta.caption || "");
+
+      const save = () => { onCaption(meta.id, cap); setEditing(false); };
+
+      return (
+        <div style={{ marginBottom:14 }}>
+          {dataUrl && (
+            <div style={{ position:"relative" }}>
+              <img src={dataUrl} alt={cap}
+                style={{ width:"100%", borderRadius:14, display:"block",
+                  maxHeight:320, objectFit:"cover" }} />
+              <button onClick={() => onDelete(meta.id)} style={{
+                position:"absolute", top:8, right:8,
+                background:"rgba(0,0,0,0.45)", border:"none", borderRadius:"50%",
+                width:30, height:30, color:"#fff", cursor:"pointer", fontSize:14,
+                display:"flex", alignItems:"center", justifyContent:"center"
+              }}>✕</button>
+            </div>
+          )}
+          {editing ? (
+            <div style={{ display:"flex", gap:8, marginTop:8 }}>
+              <input value={cap} onChange={e => setCap(e.target.value)}
+                autoFocus placeholder="Bildunterschrift…"
+                onKeyDown={e => e.key==="Enter" && save()}
+                style={{ flex:1, padding:"8px 12px", borderRadius:10,
+                  border:`1px solid ${C.border}`, fontSize:13,
+                  fontFamily:"inherit", background:"#F7F4EF", color:C.text, outline:"none" }} />
+              <button onClick={save} style={{ background:C.accent, color:"#fff", border:"none",
+                borderRadius:10, padding:"8px 14px", cursor:"pointer",
+                fontSize:13, fontFamily:"inherit", fontWeight:600 }}>OK</button>
+            </div>
+          ) : (
+            <div onClick={() => setEditing(true)}
+              style={{ marginTop:6, fontSize:13, color:C.textSec,
+                cursor:"pointer", padding:"4px 2px",
+                fontStyle: cap ? "normal" : "italic" }}>
+              {cap || "Bildunterschrift tippen…"}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  EINTRAG BEARBEITEN
+    // ─────────────────────────────────────────────────────
+    function EntryEdit({ entry, tripId, onSave, onClose }) {
+      const [date,     setDate]     = useState(entry?.date     || todayISO());
+      const [location, setLocation] = useState(entry?.location || "");
+      const [lat,      setLat]      = useState(entry?.lat      || null);
+      const [lng,      setLng]      = useState(entry?.lng      || null);
+      const [text,     setText]     = useState(entry?.text     || "");
+      const [photos,   setPhotos]   = useState(entry?.photos   || []);
+      const [photoData,setPhotoData]= useState({});
+      const [geocoding,setGeocoding]= useState(false);
+      const fileRef = useRef(null);
+
+      useEffect(() => {
+        if (photos.length) dbGetPhotos(photos.map(p => p.id)).then(setPhotoData);
+      }, []);
+
+      const doGeocode = async () => {
+        if (!location) return;
+        setGeocoding(true);
+        const r = await geocode(location);
+        if (r) { setLat(r.lat); setLng(r.lng); }
+        setGeocoding(false);
+      };
+
+      const addPhotos = async e => {
+        for (const file of Array.from(e.target.files)) {
+          const id = uid();
+          const dataUrl = await new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = ev => res(ev.target.result);
+            reader.readAsDataURL(file);
+          });
+          await dbSavePhoto(id, dataUrl);
+          setPhotos(prev => [...prev, { id, caption:"" }]);
+          setPhotoData(prev => ({ ...prev, [id]: dataUrl }));
+        }
+        e.target.value = "";
+      };
+
+      const delPhoto = async id => {
+        await dbDeletePhoto(id);
+        setPhotos(prev => prev.filter(p => p.id !== id));
+        setPhotoData(prev => { const n={...prev}; delete n[id]; return n; });
+      };
+
+      const updCaption = (id, caption) =>
+        setPhotos(prev => prev.map(p => p.id===id ? {...p, caption} : p));
+
+      const save = () => {
+        if (!date) return;
+        onSave({ id: entry?.id||uid(), tripId, date, location, lat, lng,
+          text, photos, createdAt: entry?.createdAt||Date.now() });
+        onClose();
+      };
+
+      const generatePDF = async () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+
+        const PW = 210, PH = 297;
+        const ML = 18, MR = 18, MT = 8, MB = 16;
+        const CW = PW - ML - MR;
+        const BOTTOM = PH - MB;
+        let y = MT;
+
+        const newPageIfNeeded = h => {
+          if (y + h > BOTTOM) { doc.addPage(); y = MT; }
+        };
+
+        const setFont = (size, style='normal', color=[28,25,22]) => {
+          doc.setFontSize(size);
+          doc.setFont('helvetica', style);
+          doc.setTextColor(...color);
+        };
+
+        // ── Akzentbalken oben ──
+        doc.setFillColor(200, 135, 74);
+        doc.rect(0, 0, PW, 3.5, 'F');
+        y = 14;
+
+        // ── Label ──
+        setFont(7.5, 'normal', [160,150,140]);
+        doc.text('REISETAGEBUCH', ML, y);
+        y += 7;
+
+        // ── Wochentag ──
+        setFont(10, 'bold', [200,135,74]);
+        doc.text(fmtWeekday(date).toUpperCase(), ML, y);
+        y += 7.5;
+
+        // ── Datum groß ──
+        setFont(26, 'bold', [28,25,22]);
+        doc.text(fmtDayMonth(date), ML, y);
+        y += 8;
+
+        // ── Jahr ──
+        setFont(11, 'normal', [138,132,124]);
+        doc.text(String(fmtYear(date)), ML, y);
+        y += 7;
+
+        // ── Ort ──
+        if (location) {
+          setFont(11, 'normal', [138,132,124]);
+          doc.text('Ort: ' + location, ML, y);
+          y += 7;
+        }
+
+        // ── Trennlinie ──
+        y += 2;
+        doc.setDrawColor(220, 215, 208);
+        doc.setLineWidth(0.4);
+        doc.line(ML, y, ML + CW, y);
+        y += 9;
+
+        // ── Text ──
+        if (text) {
+          setFont(11, 'normal', [28,25,22]);
+          doc.setLineHeightFactor(1.6);
+          const lines = doc.splitTextToSize(text, CW);
+          const lh = 6.2;
+          for (const line of lines) {
+            newPageIfNeeded(lh);
+            doc.text(line, ML, y);
+            y += lh;
+          }
+          y += 7;
+        }
+
+        // ── Fotos ──
+        for (const p of photos) {
+          const dataUrl = photoData[p.id];
+          if (!dataUrl) continue;
+
+          const dims = await new Promise(res => {
+            const img = new Image();
+            img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+            img.src = dataUrl;
+          });
+
+          const maxW = CW;
+          const maxH = 140;
+          let iw = maxW;
+          let ih = (dims.h / dims.w) * iw;
+          if (ih > maxH) { ih = maxH; iw = (dims.w / dims.h) * ih; }
+
+          const captionH = p.caption ? 10 : 0;
+          newPageIfNeeded(ih + captionH + 8);
+
+          const ix = ML + (CW - iw) / 2;
+          doc.addImage(dataUrl, 'JPEG', ix, y, iw, ih, undefined, 'MEDIUM');
+          y += ih + 3;
+
+          if (p.caption) {
+            setFont(9, 'italic', [138,132,124]);
+            const capLines = doc.splitTextToSize(p.caption, CW);
+            capLines.forEach(cl => {
+              doc.text(cl, PW / 2, y, { align:'center' });
+              y += 5;
+            });
+          }
+          y += 7;
+        }
+
+        // ── Seitenfußzeile ──
+        const total = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= total; i++) {
+          doc.setPage(i);
+          setFont(7.5, 'normal', [180,174,168]);
+          doc.text('Reisetagebuch', ML, PH - 8);
+          if (location) doc.text(location, PW / 2, PH - 8, { align:'center' });
+          doc.text(fmtShort(date), ML + CW, PH - 8, { align:'right' });
+          if (total > 1) doc.text(`${i} / ${total}`, PW / 2, PH - 3, { align:'center' });
+          // Akzentlinie unten
+          doc.setDrawColor(200,135,74);
+          doc.setLineWidth(0.5);
+          doc.line(ML, PH - 12, ML + CW, PH - 12);
+        }
+
+        const fname = `Tagebuch_${date}${location ? '_' + location.replace(/[^a-zA-Z0-9]/g,'_') : ''}.pdf`;
+        doc.save(fname);
+      };
+
+      return (
+        <Sheet title={entry ? "Eintrag bearbeiten" : "Neuer Eintrag"} onClose={onClose}>
+          <Field label="Datum">
+            <Input type="date" value={date} onChange={setDate} />
+          </Field>
+
+          <Field label="Ort / Stadt">
+            <div style={{ display:"flex", gap:8 }}>
+              <input value={location} onChange={e => setLocation(e.target.value)}
+                placeholder="z.B. Rom, Florenz, Paris…"
+                onKeyDown={e => e.key==="Enter" && doGeocode()}
+                style={{ flex:1, background:"#F7F4EF", border:`1px solid ${C.border}`,
+                  borderRadius:12, padding:"11px 14px", fontSize:15, color:C.text,
+                  outline:"none", fontFamily:"inherit" }} />
+              <button onClick={doGeocode} style={{
+                background: C.accent, color:"#fff", border:"none", borderRadius:12,
+                padding:"11px 16px", cursor:"pointer", fontSize:13,
+                fontFamily:"inherit", fontWeight:600, whiteSpace:"nowrap"
+              }}>{geocoding ? "…" : "🗺️ Karte"}</button>
+            </div>
+            <MapPreview lat={lat} lng={lng} />
+          </Field>
+
+          <Field label="Tagebucheintrag">
+            <Textarea value={text} onChange={setText}
+              placeholder="Was hast du heute erlebt, gesehen, gefühlt…" rows={8} />
+          </Field>
+
+          <Field label="Fotos">
+            <input ref={fileRef} type="file" accept="image/*" multiple
+              onChange={addPhotos} style={{ display:"none" }} />
+            {photos.map(p => (
+              <PhotoItem key={p.id} meta={p} dataUrl={photoData[p.id]}
+                onDelete={delPhoto} onCaption={updCaption} />
+            ))}
+            <button onClick={() => fileRef.current.click()} style={{
+              width:"100%", padding:14, borderRadius:14,
+              border:`2px dashed ${C.border}`, background:"transparent",
+              color:C.textSec, cursor:"pointer", fontSize:14, fontFamily:"inherit",
+              display:"flex", alignItems:"center", justifyContent:"center", gap:8
+            }}>📷 Fotos aus Mediathek hinzufügen</button>
+          </Field>
+
+          <div style={{ display:"flex", gap:10 }}>
+            <Btn onClick={save} full>Speichern</Btn>
+          </div>
+        </Sheet>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  EINTRAG ANSICHT
+    // ─────────────────────────────────────────────────────
+    function EntryView({ entry, onEdit, onDelete, onClose, onOpenLayout }) {
+      const [photoData, setPhotoData] = useState({});
+
+      useEffect(() => {
+        if (entry?.photos?.length)
+          dbGetPhotos(entry.photos.map(p => p.id)).then(setPhotoData);
+      }, [entry]);
+
+      const generatePDF = async () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+        const PW = 210, PH = 297, ML = 18, MB = 16, MT = 8, CW = 210 - 36;
+        const BOTTOM = PH - MB;
+        let y = MT;
+
+        const newPageIfNeeded = h => { if (y + h > BOTTOM) { doc.addPage(); y = MT; } };
+        const setFont = (size, style='normal', color=[28,25,22]) => {
+          doc.setFontSize(size); doc.setFont('helvetica', style); doc.setTextColor(...color);
+        };
+
+        doc.setFillColor(200,135,74); doc.rect(0,0,PW,3.5,'F');
+        y = 14;
+        setFont(7.5,'normal',[160,150,140]); doc.text('REISETAGEBUCH', ML, y); y += 7;
+        setFont(10,'bold',[200,135,74]); doc.text(fmtWeekday(entry.date).toUpperCase(), ML, y); y += 7.5;
+        setFont(26,'bold',[28,25,22]); doc.text(fmtDayMonth(entry.date), ML, y); y += 8;
+        setFont(11,'normal',[138,132,124]); doc.text(String(fmtYear(entry.date)), ML, y); y += 7;
+        if (entry.location) { setFont(11,'normal',[138,132,124]); doc.text('Ort: ' + entry.location, ML, y); y += 7; }
+        y += 2;
+        doc.setDrawColor(220,215,208); doc.setLineWidth(0.4); doc.line(ML, y, ML+CW, y); y += 9;
+
+        if (entry.text) {
+          setFont(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
+          const lines = doc.splitTextToSize(entry.text, CW);
+          lines.forEach(l => { newPageIfNeeded(6.2); doc.text(l, ML, y); y += 6.2; });
+          y += 7;
+        }
+
+        for (const p of (entry.photos||[])) {
+          const dataUrl = photoData[p.id]; if (!dataUrl) continue;
+          const dims = await new Promise(res => { const img=new Image(); img.onload=()=>res({w:img.naturalWidth,h:img.naturalHeight}); img.src=dataUrl; });
+          let iw=CW, ih=(dims.h/dims.w)*iw;
+          if (ih>140) { ih=140; iw=(dims.w/dims.h)*ih; }
+          newPageIfNeeded(ih+(p.caption?10:0)+8);
+          doc.addImage(dataUrl,'JPEG',ML+(CW-iw)/2,y,iw,ih,undefined,'MEDIUM'); y+=ih+3;
+          if (p.caption) {
+            setFont(9,'italic',[138,132,124]);
+            doc.splitTextToSize(p.caption,CW).forEach(cl => { doc.text(cl,PW/2,y,{align:'center'}); y+=5; });
+          }
+          y += 7;
+        }
+
+        const total = doc.internal.getNumberOfPages();
+        for (let i=1; i<=total; i++) {
+          doc.setPage(i);
+          setFont(7.5,'normal',[180,174,168]);
+          doc.text('Reisetagebuch', ML, PH-8);
+          if (entry.location) doc.text(entry.location, PW/2, PH-8, {align:'center'});
+          doc.text(fmtShort(entry.date), ML+CW, PH-8, {align:'right'});
+          if (total>1) doc.text(`${i} / ${total}`, PW/2, PH-3, {align:'center'});
+          doc.setDrawColor(200,135,74); doc.setLineWidth(0.5); doc.line(ML, PH-12, ML+CW, PH-12);
+        }
+
+        const fname = `Tagebuch_${entry.date}${entry.location?'_'+entry.location.replace(/[^a-zA-Z0-9]/g,'_'):''}.pdf`;
+        doc.save(fname);
+      };
+
+      if (!entry) return null;
+
+      return (
+        <div style={{ background:C.bg, minHeight:"100vh" }}>
+          {/* Header */}
+          <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`,
+            padding:"0 20px", display:"flex", justifyContent:"space-between",
+            alignItems:"center", height:"calc(56px + env(safe-area-inset-top))",
+            paddingTop:"env(safe-area-inset-top)" }}>
+            <button onClick={onClose} style={{ background:"none", border:"none",
+              color:C.accent, fontSize:15, fontFamily:"inherit", fontWeight:600,
+              cursor:"pointer", padding:"8px 0" }}>← Zurück</button>
+            <div style={{ display:"flex", gap:14, alignItems:"center" }}>
+              <button onClick={onOpenLayout} title="PDF mit Layout-Editor erstellen"
+                style={{ background:C.accentBg, border:`1px solid ${C.accent}`,
+                  borderRadius:10, padding:"5px 12px", cursor:"pointer",
+                  fontSize:12, fontWeight:700, color:C.accent, fontFamily:"inherit" }}>
+                📐 PDF
+              </button>
+              <button onClick={onEdit} style={{ background:"none", border:"none",
+                fontSize:20, cursor:"pointer" }}>✏️</button>
+              <button onClick={onDelete} style={{ background:"none", border:"none",
+                fontSize:20, cursor:"pointer" }}>🗑️</button>
+            </div>
+          </div>
+
+          <div style={{ padding:"28px 20px 48px", maxWidth:620, margin:"0 auto" }}>
+            {/* Datum groß */}
+            <div style={{ fontSize:12, fontWeight:700, color:C.accent,
+              textTransform:"uppercase", letterSpacing:1.2, marginBottom:4 }}>
+              {fmtWeekday(entry.date)}
+            </div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:38,
+              fontWeight:800, color:C.text, lineHeight:1.05, marginBottom:4 }}>
+              {fmtDayMonth(entry.date)}
+            </div>
+            <div style={{ fontSize:15, color:C.textSec, marginBottom:16 }}>
+              {fmtYear(entry.date)}
+            </div>
+
+            {/* Ort */}
+            {entry.location && (
+              <div style={{ display:"flex", alignItems:"center", gap:6,
+                color:C.textSec, fontSize:14, marginBottom:16 }}>
+                📍 {entry.location}
+              </div>
+            )}
+
+            {/* Karte */}
+            {entry.lat && entry.lng && <MapPreview lat={entry.lat} lng={entry.lng} />}
+
+            {/* Fotos */}
+            {entry.photos?.length > 0 && (
+              <div style={{ marginTop:20 }}>
+                {entry.photos.map(p => photoData[p.id] && (
+                  <div key={p.id} style={{ marginBottom:14 }}>
+                    <img src={photoData[p.id]} alt={p.caption}
+                      style={{ width:"100%", borderRadius:16, display:"block",
+                        maxHeight:400, objectFit:"cover" }} />
+                    {p.caption && (
+                      <div style={{ fontSize:13, color:C.textSec, marginTop:6,
+                        textAlign:"center", fontStyle:"italic" }}>{p.caption}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Text */}
+            {entry.text && (
+              <div style={{ fontSize:16, color:C.text, lineHeight:1.85,
+                marginTop: entry.photos?.length ? 8 : 20, whiteSpace:"pre-wrap",
+                fontFamily:"'DM Sans', sans-serif" }}>
+                {entry.text}
+              </div>
+            )}
+
+            {!entry.text && !entry.photos?.length && (
+              <div style={{ color:C.textSec, fontSize:15, marginTop:24, textAlign:"center" }}>
+                Noch kein Inhalt – tippe auf ✏️ um den Eintrag zu bearbeiten.
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  LAYOUT-EDITOR  (PDF mit Textfluss um Fotos)
+    // ─────────────────────────────────────────────────────
+    const PREVIEW_CW = 500;   // px content width in A4 preview
+    const PDF_CW     = 174;   // mm content width in PDF  (210 - 18 - 18)
+    const PX_TO_MM   = PDF_CW / PREVIEW_CW;
+
+    function LayoutEditor({ entry, tripName, onClose }) {
+      const [photoData,  setPhotoData]  = useState({});
+      const [layout,     setLayout]     = useState([]);   // [{id, photoId, afterPara, float, widthPx}]
+      const [selId,      setSelId]      = useState(null);
+      const [generating, setGenerating] = useState(false);
+      const dragOver     = useRef(null);
+
+      const paras = (entry.text || '').split(/\n+/).filter(p => p.trim());
+
+      useEffect(() => {
+        if (entry.photos?.length)
+          dbGetPhotos(entry.photos.map(p => p.id)).then(setPhotoData);
+      }, [entry]);
+
+      const placePhoto = (photoId, afterPara, fl = 'right') => {
+        setLayout(prev => {
+          const without = prev.filter(l => l.photoId !== photoId);
+          return [...without, { id: uid(), photoId, afterPara, float: fl, widthPx: 200 }];
+        });
+      };
+      const updItem  = (id, patch) => setLayout(prev => prev.map(l => l.id===id ? {...l,...patch} : l));
+      const delItem  = (id) => { setLayout(prev => prev.filter(l => l.id!==id)); setSelId(null); };
+      const sel      = layout.find(l => l.id===selId);
+      const placedIds = new Set(layout.map(l => l.photoId));
+
+      // ── PDF generation with float layout ─────────────────
+      const generatePDF = async () => {
+        setGenerating(true);
+        try {
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+          const PW=210, PH=297, ML=18, MR=18, MT=18, MB=18;
+          const CW = PW-ML-MR;
+          const BOTTOM = PH-MB;
+          const LH = 6.2, PHOTO_GAP = 4;
+          let y = MT;
+
+          const sf = (sz, st='normal', col=[28,25,22]) => {
+            doc.setFontSize(sz); doc.setFont('helvetica',st); doc.setTextColor(...col);
+          };
+          const chk = h => { if (y+h > BOTTOM) { doc.addPage(); y=MT; } };
+
+          // Header
+          doc.setFillColor(200,135,74); doc.rect(0,0,PW,3.5,'F');
+          y=14;
+          sf(7.5,'normal',[160,150,140]);
+          doc.text('REISETAGEBUCH'+(tripName?' · '+tripName.toUpperCase():''), ML, y); y+=7;
+          sf(10,'bold',[200,135,74]);
+          doc.text(fmtWeekday(entry.date).toUpperCase(), ML, y); y+=7.5;
+          sf(26,'bold',[28,25,22]);
+          doc.text(fmtDayMonth(entry.date), ML, y); y+=8;
+          sf(11,'normal',[138,132,124]);
+          doc.text(String(fmtYear(entry.date)), ML, y); y+=7;
+          if (entry.location) { sf(11,'normal',[138,132,124]); doc.text('📍 '+entry.location, ML, y); y+=7; }
+          y+=2;
+          doc.setDrawColor(220,215,208); doc.setLineWidth(0.4);
+          doc.line(ML, y, ML+CW, y); y+=9;
+
+          // Load image dims helper
+          const dims = async (url) => new Promise(res => {
+            const img=new Image(); img.onload=()=>res({w:img.naturalWidth,h:img.naturalHeight}); img.src=url;
+          });
+
+          // Group layout items by afterPara
+          const byPara = {};
+          layout.forEach(it => { (byPara[it.afterPara]||(byPara[it.afterPara]=[])).push(it); });
+
+          // Render a single float photo block; returns endY
+          const renderPhoto = async (item, startY) => {
+            const url = photoData[item.photoId]; if (!url) return startY;
+            const pMeta = (entry.photos||[]).find(p=>p.id===item.photoId);
+            const d = await dims(url);
+            const maxW = item.float==='center' ? CW : Math.min(item.widthPx*PX_TO_MM, CW*0.55);
+            const photoW = Math.min(maxW, CW);
+            const photoH = (d.h/d.w)*photoW;
+            const capLines = pMeta?.caption ? doc.splitTextToSize(pMeta.caption, photoW) : [];
+            const capH = capLines.length ? capLines.length*4.5+2 : 0;
+
+            if (item.float==='center') {
+              chk(photoH+capH+6);
+              doc.addImage(url,'JPEG',ML+(CW-photoW)/2,y,photoW,photoH,undefined,'MEDIUM');
+              let cy=y+photoH+3;
+              if (capLines.length) {
+                sf(8,'italic',[138,132,124]);
+                capLines.forEach(cl => { doc.text(cl, PW/2, cy, {align:'center'}); cy+=4.5; });
+              }
+              y = cy+4; return y;
+            }
+            // float left/right
+            const photoX = item.float==='left' ? ML : ML+CW-photoW;
+            doc.addImage(url,'JPEG',photoX,startY,photoW,photoH,undefined,'MEDIUM');
+            if (capLines.length) {
+              sf(8,'italic',[138,132,124]);
+              capLines.forEach((cl,ci) => doc.text(cl, photoX+photoW/2, startY+photoH+2+ci*4.5, {align:'center'}));
+            }
+            return startY+photoH+capH+(capLines.length?2:0)+3;
+          };
+
+          // Render paragraph text with optional side float
+          const renderPara = async (text, floatItem) => {
+            if (!floatItem) {
+              sf(11,'normal',[28,25,22]);
+              const lines = doc.splitTextToSize(text, CW);
+              for (const l of lines) { chk(LH); sf(11,'normal',[28,25,22]); doc.text(l,ML,y); y+=LH; }
+              y+=3; return;
+            }
+            if (floatItem.float==='center') {
+              await renderPhoto(floatItem, y);
+              sf(11,'normal',[28,25,22]);
+              const lines = doc.splitTextToSize(text, CW);
+              for (const l of lines) { chk(LH); doc.text(l,ML,y); y+=LH; }
+              y+=3; return;
+            }
+            // side float
+            const url = photoData[floatItem.photoId];
+            if (!url) { await renderPara(text, null); return; }
+            const d     = await dims(url);
+            const pMeta = (entry.photos||[]).find(p=>p.id===floatItem.photoId);
+            const photoW = Math.min(floatItem.widthPx*PX_TO_MM, CW*0.55);
+            const photoH = (d.h/d.w)*photoW;
+            const capLines = pMeta?.caption ? doc.splitTextToSize(pMeta.caption, photoW) : [];
+            const capH = capLines.length ? capLines.length*4.5+2 : 0;
+            const photoTotalH = photoH+capH+3;
+
+            const photoX = floatItem.float==='left' ? ML : ML+CW-photoW;
+            const textX  = floatItem.float==='left' ? ML+photoW+PHOTO_GAP : ML;
+            const textW  = CW-photoW-PHOTO_GAP;
+
+            chk(Math.min(photoTotalH, 50)+LH);
+            const blockStart = y;
+            doc.addImage(url,'JPEG',photoX,blockStart,photoW,photoH,undefined,'MEDIUM');
+            if (capLines.length) {
+              sf(8,'italic',[138,132,124]);
+              capLines.forEach((cl,ci)=>doc.text(cl, photoX+photoW/2, blockStart+photoH+2+ci*4.5, {align:'center'}));
+            }
+            const photoEndY = blockStart+photoTotalH;
+
+            sf(11,'normal',[28,25,22]);
+            const sideLines = doc.splitTextToSize(text, textW);
+            const fullLines = doc.splitTextToSize(text, CW);
+            let ly = blockStart;
+            let si = 0;
+            // lines next to photo
+            while (si < sideLines.length && ly+LH <= photoEndY+LH) {
+              doc.text(sideLines[si], textX, ly); ly+=LH; si++;
+            }
+            // remaining lines full width below photo
+            y = Math.max(ly, photoEndY);
+            const renderedChars = sideLines.slice(0,si).join(' ').length;
+            const remainText = text.slice(renderedChars).trimStart();
+            if (remainText) {
+              const remLines = doc.splitTextToSize(remainText, CW);
+              for (const l of remLines) { chk(LH); sf(11,'normal',[28,25,22]); doc.text(l,ML,y); y+=LH; }
+            }
+            y+=3;
+          };
+
+          // Before-all photos (afterPara === -1)
+          for (const it of (byPara[-1]||[])) await renderPhoto(it, y);
+
+          // Paragraphs
+          for (let i=0; i<paras.length; i++) {
+            const items = byPara[i]||[];
+            await renderPara(paras[i], items[0]||null);
+            // extra photos at same position (2nd, 3rd…)
+            for (let j=1; j<items.length; j++) await renderPhoto(items[j], y);
+          }
+
+          // After-last photos (afterPara === paras.length)
+          for (const it of (byPara[paras.length]||[])) await renderPhoto(it, y);
+
+          // Footer
+          const total = doc.internal.getNumberOfPages();
+          for (let i=1; i<=total; i++) {
+            doc.setPage(i);
+            sf(7.5,'normal',[180,174,168]);
+            doc.text('Reisetagebuch', ML, PH-8);
+            if (entry.location) doc.text(entry.location, PW/2, PH-8, {align:'center'});
+            doc.text(fmtShort(entry.date), ML+CW, PH-8, {align:'right'});
+            if (total>1) doc.text(`${i} / ${total}`, PW/2, PH-3, {align:'center'});
+            doc.setDrawColor(200,135,74); doc.setLineWidth(0.5);
+            doc.line(ML, PH-12, ML+CW, PH-12);
+          }
+
+          const fname = `Tagebuch_${entry.date}${entry.location?'_'+entry.location.replace(/[^a-zA-Z0-9]/g,'_'):''}.pdf`;
+          doc.save(fname);
+        } finally { setGenerating(false); }
+      };
+
+      // ── Render ────────────────────────────────────────────
+      const baseStyle = {
+        position:'fixed', inset:0, zIndex:300,
+        background:'#1a1a2e', display:'flex', flexDirection:'column',
+        fontFamily:"'DM Sans', sans-serif",
+      };
+
+      const topBar = {
+        display:'flex', alignItems:'center', gap:12, padding:'10px 16px',
+        background:'#16213e', borderBottom:'1px solid rgba(255,255,255,.08)',
+        flexShrink:0,
+      };
+
+      return (
+        <div style={baseStyle}>
+          {/* Top bar */}
+          <div style={topBar}>
+            <button onClick={onClose} style={{ background:'rgba(255,255,255,.08)', border:'none', color:'#e0e0e0', borderRadius:8, padding:'6px 14px', cursor:'pointer', fontSize:13 }}>← Zurück</button>
+            <span style={{ flex:1, fontWeight:600, fontSize:15, color:'#e0e0e0' }}>Layout-Editor</span>
+            <span style={{ fontSize:12, color:'rgba(255,255,255,.45)' }}>
+              {fmtWeekday(entry.date)}, {fmtDayMonth(entry.date)} {fmtYear(entry.date)}{entry.location ? ' · '+entry.location : ''}
+            </span>
+            <button onClick={generating ? null : generatePDF} style={{
+              background: generating ? 'rgba(200,135,74,.4)' : 'linear-gradient(135deg,#c8874a,#a06030)',
+              color:'white', border:'none', borderRadius:8, padding:'8px 20px',
+              fontSize:13, fontWeight:700, cursor: generating ? 'not-allowed' : 'pointer'
+            }}>{generating ? '⏳ Erstelle PDF…' : '📄 PDF erstellen'}</button>
+          </div>
+
+          <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+
+            {/* Left: unplaced photos */}
+            <div style={{ width:220, background:'#16213e', borderRight:'1px solid rgba(255,255,255,.08)', overflowY:'auto', padding:12, flexShrink:0 }}>
+              <div style={{ fontSize:10, textTransform:'uppercase', letterSpacing:1.2, color:'rgba(255,255,255,.4)', marginBottom:10 }}>Fotos</div>
+              {(entry.photos||[]).map(p => {
+                const placed = placedIds.has(p.id);
+                return (
+                  <div key={p.id}
+                    draggable={!placed}
+                    onDragStart={e => { e.dataTransfer.setData('photoId', p.id); e.dataTransfer.effectAllowed='copy'; }}
+                    style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(255,255,255,.05)',
+                      borderRadius:8, padding:'7px 8px', marginBottom:6, cursor: placed ? 'default' : 'grab',
+                      opacity: placed ? 0.4 : 1, border:'2px solid transparent', transition:'border-color .15s' }}
+                    onMouseEnter={e => !placed && (e.currentTarget.style.borderColor='#c8874a')}
+                    onMouseLeave={e => e.currentTarget.style.borderColor='transparent'}
+                  >
+                    {photoData[p.id]
+                      ? <img src={photoData[p.id]} style={{ width:44, height:32, objectFit:'cover', borderRadius:4 }} />
+                      : <div style={{ width:44, height:32, background:'#0f3460', borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>📷</div>
+                    }
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:11, color:'#e0e0e0', lineHeight:1.3 }}>{p.caption || 'Foto'}</div>
+                      <div style={{ fontSize:9, color:'rgba(255,255,255,.35)' }}>{placed ? 'platziert' : 'in Text ziehen'}</div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ marginTop:16, padding:10, background:'rgba(255,255,255,.04)', borderRadius:8, fontSize:10.5, color:'rgba(255,255,255,.4)', lineHeight:1.6 }}>
+                💡 Foto in den Text ziehen. Foto anklicken → <strong style={{color:'rgba(255,255,255,.6)'}}>Links / Mitte / Rechts</strong> wählen.
+              </div>
+            </div>
+
+            {/* Center: A4 preview */}
+            <div style={{ flex:1, overflowY:'auto', padding:'28px 20px', display:'flex', justifyContent:'center', background:'#1a1a2e' }}>
+              <div style={{ width:PREVIEW_CW+80, background:'white', boxShadow:'0 8px 40px rgba(0,0,0,.6)', fontFamily:'Georgia, serif', color:'#222', flexShrink:0 }}>
+                {/* Page header */}
+                <div style={{ background:'linear-gradient(135deg,#1a3a5c,#2d6a8f)', color:'white', padding:'18px 40px 14px' }}>
+                  <div style={{ fontSize:9, letterSpacing:3, textTransform:'uppercase', opacity:.65, fontFamily:'Arial' }}>
+                    {fmtWeekday(entry.date)}
+                  </div>
+                  <div style={{ fontSize:28, fontWeight:700, lineHeight:1.1 }}>{fmtDayMonth(entry.date)}</div>
+                  {entry.location && <div style={{ fontSize:10, opacity:.75, marginTop:3, fontFamily:'Arial' }}>📍 {entry.location}</div>}
+                </div>
+                <div style={{ height:2, background:'linear-gradient(90deg,#c8874a,#e8c87a,#c8874a)' }} />
+
+                {/* Page body with drop zones */}
+                <div style={{ padding:'20px 40px 32px', minHeight:700, fontSize:10.5, lineHeight:1.75, position:'relative' }}
+                  onClick={e => { if (e.target === e.currentTarget) setSelId(null); }}
+                >
+                  {/* Drop zone before first paragraph */}
+                  <DropZone afterPara={-1} onDrop={placePhoto} layout={layout} paras={paras} />
+
+                  {paras.map((text, pi) => {
+                    const items = layout.filter(l => l.afterPara===pi);
+                    return (
+                      <div key={pi} style={{ clear:'both' }}>
+                        {items.map(item => (
+                          <FloatPhoto key={item.id} item={item} photoData={photoData}
+                            caption={(entry.photos||[]).find(p=>p.id===item.photoId)?.caption}
+                            selected={selId===item.id}
+                            onSelect={() => setSelId(item.id)}
+                            onFloat={fl => updItem(item.id,{float:fl})}
+                            onDelete={() => delItem(item.id)}
+                            onResize={w => updItem(item.id,{widthPx:w})}
+                          />
+                        ))}
+                        <p style={{ margin:0, marginBottom:12 }}>{text}</p>
+                        <DropZone afterPara={pi} onDrop={placePhoto} layout={layout} paras={paras} isAfter />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: settings */}
+            <div style={{ width:190, background:'#16213e', borderLeft:'1px solid rgba(255,255,255,.08)', padding:12, overflowY:'auto', flexShrink:0 }}>
+              <div style={{ fontSize:10, textTransform:'uppercase', letterSpacing:1.2, color:'rgba(255,255,255,.4)', marginBottom:10 }}>Ausgewählt</div>
+              {sel ? (
+                <div>
+                  {photoData[sel.photoId] &&
+                    <img src={photoData[sel.photoId]} style={{ width:'100%', borderRadius:8, marginBottom:10, objectFit:'cover', height:90 }} />
+                  }
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,.5)', marginBottom:6 }}>Textfluss</div>
+                  <div style={{ display:'flex', gap:5, marginBottom:12 }}>
+                    {['left','center','right'].map(fl => (
+                      <button key={fl} onClick={() => updItem(sel.id,{float:fl})} style={{
+                        flex:1, background: sel.float===fl ? 'rgba(200,135,74,.25)' : 'rgba(255,255,255,.06)',
+                        border: sel.float===fl ? '1px solid #c8874a' : '1px solid rgba(255,255,255,.1)',
+                        color: sel.float===fl ? '#c8874a' : '#e0e0e0',
+                        borderRadius:6, padding:'5px 2px', fontSize:10, cursor:'pointer'
+                      }}>{fl==='left'?'◀ Links':fl==='center'?'Mitte':'Rechts ▶'}</button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,.5)', marginBottom:6 }}>Breite</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12 }}>
+                    <input type="range" min={100} max={450} value={sel.widthPx}
+                      onChange={e => updItem(sel.id,{widthPx:+e.target.value})}
+                      style={{ flex:1, accentColor:'#c8874a' }} />
+                    <span style={{ fontSize:10, color:'rgba(255,255,255,.45)', minWidth:28 }}>{sel.widthPx}</span>
+                  </div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,.5)', marginBottom:6 }}>Position</div>
+                  <div style={{ display:'flex', gap:5, marginBottom:16 }}>
+                    {[[-1,'▲ Höher'],[1,'▼ Tiefer']].map(([d,lbl]) => (
+                      <button key={d} onClick={() => {
+                        const newPara = Math.max(-1, Math.min(paras.length, sel.afterPara+d));
+                        updItem(sel.id,{afterPara:newPara});
+                      }} style={{ flex:1, background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', color:'#e0e0e0', borderRadius:6, padding:'5px 4px', fontSize:10, cursor:'pointer' }}>{lbl}</button>
+                    ))}
+                  </div>
+                  <button onClick={() => delItem(sel.id)} style={{ width:'100%', background:'none', border:'1px solid rgba(224,85,85,.3)', color:'#e05555', borderRadius:6, padding:'7px', fontSize:11, cursor:'pointer' }}>🗑 Entfernen</button>
+                </div>
+              ) : (
+                <div style={{ fontSize:11, color:'rgba(255,255,255,.35)', textAlign:'center', paddingTop:20, lineHeight:1.6 }}>
+                  Kein Foto ausgewählt.<br/>Foto anklicken um zu bearbeiten.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ background:'#0a1628', padding:'5px 16px', fontSize:10, color:'rgba(255,255,255,.45)', display:'flex', gap:16, flexShrink:0 }}>
+            <span>💡 Fotos aus der linken Liste per Drag &amp; Drop in den gelb markierten Bereich ziehen</span>
+            <span>·</span>
+            <span>{layout.length} von {(entry.photos||[]).length} Fotos platziert</span>
+          </div>
+        </div>
+      );
+    }
+
+    function DropZone({ afterPara, onDrop, layout, paras, isAfter }) {
+      const [over, setOver] = useState(false);
+      const label = afterPara===-1 ? 'Vor dem Text' : afterPara===paras.length ? 'Nach dem Text' : `Nach Absatz ${afterPara+1}`;
+      return (
+        <div
+          onDragOver={e => { e.preventDefault(); setOver(true); }}
+          onDragLeave={() => setOver(false)}
+          onDrop={e => { e.preventDefault(); setOver(false); const id=e.dataTransfer.getData('photoId'); if (id) onDrop(id, afterPara); }}
+          style={{
+            height: over ? 48 : 8, margin:'2px 0', borderRadius:6,
+            background: over ? 'rgba(200,135,74,.15)' : 'transparent',
+            border: over ? '2px dashed rgba(200,135,74,.6)' : '2px dashed transparent',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            transition:'height .15s, background .15s',
+            fontSize:11, color:'#c8874a', cursor:'default',
+          }}
+        >{over ? `📷 Hier einfügen — ${label}` : ''}</div>
+      );
+    }
+
+    function FloatPhoto({ item, photoData, caption, selected, onSelect, onFloat, onDelete, onResize }) {
+      const isCenter = item.float==='center';
+      const w = item.widthPx;
+      const h = Math.round(w*0.68);
+      const floatStyle = isCenter
+        ? { display:'block', margin:'8px auto', clear:'both' }
+        : { float: item.float, margin: item.float==='left' ? '0 12px 8px 0' : '0 0 8px 12px', clear:'none' };
+
+      return (
+        <div
+          onClick={e => { e.stopPropagation(); onSelect(); }}
+          style={{ position:'relative', width:w, cursor:'pointer', ...floatStyle,
+            outline: selected ? '2px solid #c8874a' : '2px solid transparent',
+            borderRadius:4, transition:'outline .1s',
+          }}
+        >
+          {selected && (
+            <div style={{ position:'absolute', top:-32, left:0, display:'flex', gap:3, zIndex:10, whiteSpace:'nowrap' }}>
+              {['left','center','right'].map(fl => (
+                <button key={fl} onClick={e => { e.stopPropagation(); onFloat(fl); }} style={{
+                  background: item.float===fl ? '#c8874a' : '#1a3a5c',
+                  color:'white', border:'none', borderRadius:4, padding:'3px 7px',
+                  fontSize:9, cursor:'pointer', fontFamily:'inherit',
+                }}>{fl==='left'?'◀':fl==='center'?'■':'▶'}</button>
+              ))}
+              <button onClick={e => { e.stopPropagation(); onDelete(); }} style={{ background:'#c0392b', color:'white', border:'none', borderRadius:4, padding:'3px 7px', fontSize:9, cursor:'pointer' }}>✕</button>
+            </div>
+          )}
+          {photoData[item.photoId]
+            ? <img src={photoData[item.photoId]} style={{ width:'100%', height:h, objectFit:'cover', display:'block', borderRadius:3 }} />
+            : <div style={{ width:'100%', height:h, background:'#e0d9d0', borderRadius:3, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>📷</div>
+          }
+          {caption && <div style={{ fontSize:8, color:'#888', fontStyle:'italic', textAlign:'center', padding:'3px 2px 0', fontFamily:'Arial' }}>{caption}</div>}
+          {selected && (
+            <div
+              onMouseDown={e => {
+                e.preventDefault(); e.stopPropagation();
+                const startX=e.clientX, startW=item.widthPx;
+                const mv=ev => onResize(Math.max(80, Math.min(490, startW+(ev.clientX-startX))));
+                const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); };
+                document.addEventListener('mousemove',mv);
+                document.addEventListener('mouseup',up);
+              }}
+              style={{ position:'absolute', bottom: caption ? 16 : 0, right:-1, width:14, height:14, background:'#c8874a', borderRadius:'2px 0 2px 0', cursor:'se-resize', display:'flex', alignItems:'center', justifyContent:'center', fontSize:8, color:'#fff' }}
+            >↘</div>
+          )}
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  EINTRAG KARTE
+    // ─────────────────────────────────────────────────────
+    function EntryCard({ entry, onClick }) {
+      const [cover, setCover] = useState(null);
+
+      useEffect(() => {
+        if (entry.photos?.length)
+          dbGetPhoto(entry.photos[0].id).then(url => url && setCover(url));
+      }, [entry]);
+
+      return (
+        <div onClick={onClick} style={{ background:C.card, borderRadius:18,
+          marginBottom:12, overflow:"hidden", cursor:"pointer",
+          boxShadow:"0 2px 14px rgba(28,25,22,0.07)",
+          border:`1px solid ${C.border}` }}>
+          {cover && (
+            <img src={cover} alt=""
+              style={{ width:"100%", height:170, objectFit:"cover", display:"block" }} />
+          )}
+          <div style={{ padding:"14px 16px" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.accent,
+              textTransform:"uppercase", letterSpacing:0.9, marginBottom:3 }}>
+              {fmtWeekday(entry.date)}
+            </div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:21,
+              fontWeight:700, color:C.text, marginBottom:entry.location?4:6 }}>
+              {fmtDayMonth(entry.date)}
+            </div>
+            {entry.location && (
+              <div style={{ fontSize:13, color:C.textSec, marginBottom:entry.text?6:0 }}>
+                📍 {entry.location}
+              </div>
+            )}
+            {entry.text && (
+              <div style={{ fontSize:14, color:C.textSec, lineHeight:1.6,
+                overflow:"hidden", display:"-webkit-box",
+                WebkitLineClamp:3, WebkitBoxOrient:"vertical" }}>
+                {entry.text}
+              </div>
+            )}
+            {entry.photos?.length > 0 && (
+              <div style={{ fontSize:12, color:C.textSec, marginTop:8 }}>
+                📷 {entry.photos.length} {entry.photos.length===1?"Foto":"Fotos"}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  REISE-DETAILSEITE
+    // ─────────────────────────────────────────────────────
+    function TripScreen({ trip, entries, route, onBack, onSaveEntry, onDeleteEntry, onDeleteTrip, onSaveRoute }) {
+      const [tab,         setTab]         = useState("entries");
+      const [view,        setView]        = useState(null);
+      const [showForm,    setShowForm]    = useState(false);
+      const [editEntry,   setEditEntry]   = useState(null);
+      const [confirmDel,  setConfirmDel]  = useState(false);
+      const [pdfRunning,  setPdfRunning]  = useState(false);
+      const [layoutEntry, setLayoutEntry] = useState(null);
+
+      const tripEntries = entries
+        .filter(e => e.tripId === trip.id)
+        .sort((a,b) => a.date.localeCompare(b.date));
+
+      const generateTripPDF = async () => {
+        if (!tripEntries.length) return;
+        setPdfRunning(true);
+        try {
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+          const PW=210, PH=297, ML=18, MR=18, MT=18, MB=18, CW=210-36;
+          const BOTTOM = PH - MB;
+          let y = MT;
+          let firstPage = true;
+
+          const newPageIfNeeded = h => {
+            if (y + h > BOTTOM) { doc.addPage(); y = MT; return true; }
+            return false;
+          };
+          const sf = (size, style='normal', color=[28,25,22]) => {
+            doc.setFontSize(size); doc.setFont('helvetica', style); doc.setTextColor(...color);
+          };
+
+          // ── Deckblatt ──────────────────────────────────────
+          doc.setFillColor(200,135,74);
+          doc.rect(0, 0, PW, 5, 'F');
+
+          sf(9,'normal',[160,150,140]);
+          doc.text('REISETAGEBUCH', ML, 16);
+
+          sf(32,'bold',[28,25,22]);
+          const titleLines = doc.splitTextToSize(trip.name, CW);
+          titleLines.forEach((l,i) => doc.text(l, ML, 30 + i*14));
+          let dy = 30 + titleLines.length * 14;
+
+          if (trip.destination) {
+            sf(14,'normal',[138,132,124]);
+            doc.text('📍 ' + trip.destination, ML, dy + 4);
+            dy += 12;
+          }
+
+          sf(11,'normal',[138,132,124]);
+          const zeitraum = fmtShort(trip.startDate) + (trip.endDate ? ' – ' + fmtShort(trip.endDate) : '');
+          doc.text(zeitraum, ML, dy + 4);
+          dy += 10;
+          sf(10,'normal',[160,150,140]);
+          doc.text(`${tripEntries.length} ${tripEntries.length===1?'Eintrag':'Einträge'}`, ML, dy + 4);
+
+          doc.setFillColor(200,135,74);
+          doc.rect(0, PH-5, PW, 5, 'F');
+
+          // ── Einträge (je auf neuer Seite) ──────────────────
+          for (let ei=0; ei < tripEntries.length; ei++) {
+            const entry = tripEntries[ei];
+            doc.addPage();
+            y = MT;
+
+            // Seitenkopf: Reisename klein
+            sf(7.5,'normal',[180,174,168]);
+            doc.text(trip.name.toUpperCase(), ML, y);
+            sf(7.5,'normal',[180,174,168]);
+            doc.text(`Tag ${ei+1} von ${tripEntries.length}`, ML+CW, y, {align:'right'});
+            y += 7;
+
+            // Akzentlinie
+            doc.setDrawColor(200,135,74); doc.setLineWidth(0.6);
+            doc.line(ML, y, ML+CW, y); y += 8;
+
+            // Wochentag
+            sf(10,'bold',[200,135,74]);
+            doc.text(fmtWeekday(entry.date).toUpperCase(), ML, y); y += 7;
+
+            // Datum groß
+            sf(24,'bold',[28,25,22]);
+            doc.text(fmtDayMonth(entry.date), ML, y); y += 8;
+
+            // Jahr
+            sf(11,'normal',[138,132,124]);
+            doc.text(String(fmtYear(entry.date)), ML, y); y += 6;
+
+            // Ort
+            if (entry.location) {
+              sf(11,'normal',[138,132,124]);
+              doc.text('Ort: ' + entry.location, ML, y); y += 7;
+            }
+
+            // Trennlinie
+            y += 2;
+            doc.setDrawColor(220,215,208); doc.setLineWidth(0.4);
+            doc.line(ML, y, ML+CW, y); y += 9;
+
+            // Text
+            if (entry.text) {
+              sf(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
+              const lines = doc.splitTextToSize(entry.text, CW);
+              for (const l of lines) {
+                newPageIfNeeded(6.5);
+                doc.text(l, ML, y); y += 6.5;
+              }
+              y += 6;
+            }
+
+            // Fotos
+            const allPhotoIds = entry.photos?.map(p=>p.id) || [];
+            const pdata = allPhotoIds.length ? await dbGetPhotos(allPhotoIds) : {};
+
+            for (const p of (entry.photos||[])) {
+              const dataUrl = pdata[p.id]; if (!dataUrl) continue;
+              const dims = await new Promise(res => {
+                const img = new Image();
+                img.onload = () => res({w:img.naturalWidth, h:img.naturalHeight});
+                img.src = dataUrl;
+              });
+              let iw=CW, ih=(dims.h/dims.w)*iw;
+              if (ih>150) { ih=150; iw=(dims.w/dims.h)*ih; }
+              const capH = p.caption ? 12 : 0;
+              newPageIfNeeded(ih + capH + 10);
+              doc.addImage(dataUrl,'JPEG', ML+(CW-iw)/2, y, iw, ih, undefined,'MEDIUM');
+              y += ih + 3;
+              if (p.caption) {
+                sf(9,'italic',[138,132,124]);
+                doc.splitTextToSize(p.caption, CW).forEach(cl => {
+                  doc.text(cl, PW/2, y, {align:'center'}); y += 5;
+                });
+              }
+              y += 8;
+            }
+          }
+
+          // ── Fußzeile auf allen Seiten ──
+          const total = doc.internal.getNumberOfPages();
+          for (let i=2; i<=total; i++) {
+            doc.setPage(i);
+            sf(7.5,'normal',[180,174,168]);
+            doc.text(trip.name, ML, PH-9);
+            doc.text(fmtShort(trip.startDate), ML+CW, PH-9, {align:'right'});
+            doc.text(`${i-1} / ${total-1}`, PW/2, PH-9, {align:'center'});
+            doc.setDrawColor(234,230,224); doc.setLineWidth(0.3);
+            doc.line(ML, PH-13, ML+CW, PH-13);
+          }
+
+          const fname = `Reisetagebuch_${trip.name.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g,'_')}.pdf`;
+          doc.save(fname);
+        } finally {
+          setPdfRunning(false);
+        }
+      };
+
+      const doDeleteEntry = async id => {
+        const e = entries.find(x => x.id===id);
+        for (const p of (e?.photos||[])) await dbDeletePhoto(p.id);
+        onDeleteEntry(id);
+        setView(null);
+      };
+
+      const viewEntry = tripEntries.find(e => e.id===view);
+
+      if (layoutEntry) return (
+        <LayoutEditor
+          entry={layoutEntry}
+          tripName={trip.name}
+          onClose={() => setLayoutEntry(null)}
+        />
+      );
+
+      if (viewEntry) return (
+        <EntryView
+          entry={viewEntry}
+          onClose={() => setView(null)}
+          onEdit={() => { setEditEntry(viewEntry); setShowForm(true); setView(null); }}
+          onDelete={() => doDeleteEntry(view)}
+          onOpenLayout={() => { setLayoutEntry(viewEntry); setView(null); }}
+        />
+      );
+
+      return (
+        <div style={{ background:C.bg, minHeight:"100vh" }}>
+          {/* Header */}
+          <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`,
+            padding:"0 20px", paddingTop:"env(safe-area-inset-top)" }}>
+            <div style={{ height:56, display:"flex", justifyContent:"space-between",
+              alignItems:"center" }}>
+              <button onClick={onBack} style={{ background:"none", border:"none",
+                color:C.accent, fontSize:15, fontFamily:"inherit", fontWeight:600,
+                cursor:"pointer" }}>← Reisen</button>
+              <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                <button onClick={generateTripPDF} disabled={pdfRunning||tripEntries.length===0}
+                  style={{ background:C.accentBg, border:`1px solid ${C.accent}`,
+                    borderRadius:10, padding:"6px 13px", cursor:"pointer",
+                    fontSize:12, fontWeight:700, color:C.accent, fontFamily:"inherit",
+                    opacity: (pdfRunning||tripEntries.length===0) ? 0.5 : 1 }}>
+                  {pdfRunning ? '…wird erstellt' : '📄 PDF'}
+                </button>
+                <button onClick={() => setConfirmDel(true)} style={{ background:"none",
+                  border:"none", fontSize:20, cursor:"pointer" }}>🗑️</button>
+                <button onClick={() => { setEditEntry(null); setShowForm(true); }}
+                  style={{ background:C.accent, border:"none", color:"#fff",
+                    width:36, height:36, borderRadius:"50%", cursor:"pointer",
+                    fontSize:20, fontWeight:700, display:"flex", alignItems:"center",
+                    justifyContent:"center", boxShadow:`0 3px 12px rgba(200,135,74,.4)` }}>+</button>
+              </div>
+            </div>
+            <div style={{ paddingBottom:16 }}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26,
+                fontWeight:800, color:C.text }}>{trip.name}</div>
+              {trip.destination && (
+                <div style={{ fontSize:14, color:C.textSec, marginTop:2 }}>
+                  📍 {trip.destination}
+                </div>
+              )}
+              <div style={{ fontSize:13, color:C.textSec, marginTop:4 }}>
+                {fmtShort(trip.startDate)}{trip.endDate ? ` – ${fmtShort(trip.endDate)}` : ""}
+                {" · "}{tripEntries.length} {tripEntries.length===1?"Eintrag":"Einträge"}
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:0, borderTop:`1px solid ${C.border}` }}>
+              {[["entries","📖 Einträge"],["route","🗺️ Route"]].map(([k,l]) => (
+                <button key={k} onClick={() => setTab(k)} style={{
+                  background:"none", border:"none", padding:"10px 18px",
+                  color: tab===k ? C.accent : C.textSec,
+                  fontWeight: tab===k ? 700 : 400,
+                  borderBottom: tab===k ? `2px solid ${C.accent}` : "2px solid transparent",
+                  cursor:"pointer", fontFamily:"inherit", fontSize:14, transition:"color .15s"
+                }}>{l}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ padding:"20px", maxWidth:620, margin:"0 auto" }}>
+            {tab === "route" ? (
+              <RouteMap
+                tripId={trip.id}
+                entries={tripEntries}
+                route={route}
+                onSaveRoute={onSaveRoute}
+              />
+            ) : tripEntries.length===0 ? (
+              <div style={{ textAlign:"center", padding:"72px 0", color:C.textSec }}>
+                <div style={{ fontSize:52, marginBottom:16 }}>📖</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24,
+                  color:C.text, marginBottom:8 }}>Erster Eintrag</div>
+                <div style={{ fontSize:15, marginBottom:24, lineHeight:1.6 }}>
+                  Halte deine Erlebnisse, Orte<br/>und Fotos fest.
+                </div>
+                <Btn onClick={() => { setEditEntry(null); setShowForm(true); }}>
+                  Eintrag erstellen
+                </Btn>
+              </div>
+            ) : (
+              tripEntries.map(e => (
+                <EntryCard key={e.id} entry={e} onClick={() => setView(e.id)} />
+              ))
+            )}
+          </div>
+
+          {showForm && (
+            <EntryEdit
+              entry={editEntry}
+              tripId={trip.id}
+              onSave={onSaveEntry}
+              onClose={() => { setShowForm(false); setEditEntry(null); }}
+            />
+          )}
+
+          {confirmDel && (
+            <Sheet title="Reise löschen?" onClose={() => setConfirmDel(false)}>
+              <p style={{ color:C.textSec, marginBottom:20, lineHeight:1.6 }}>
+                „{trip.name}" und alle Einträge werden unwiderruflich gelöscht.
+              </p>
+              <div style={{ display:"flex", gap:10 }}>
+                <Btn onClick={() => setConfirmDel(false)} full variant="ghost">Abbrechen</Btn>
+                <Btn onClick={() => onDeleteTrip(trip.id)} full danger>Löschen</Btn>
+              </div>
+            </Sheet>
+          )}
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  REISE FORMULAR
+    // ─────────────────────────────────────────────────────
+    function TripForm({ trip, onSave, onClose }) {
+      const [name,      setName]      = useState(trip?.name        || "");
+      const [dest,      setDest]      = useState(trip?.destination || "");
+      const [startDate, setStartDate] = useState(trip?.startDate   || "");
+      const [endDate,   setEndDate]   = useState(trip?.endDate     || "");
+
+      const save = () => {
+        if (!name) return;
+        onSave({ id: trip?.id||uid(), name, destination:dest,
+          startDate, endDate, createdAt: trip?.createdAt||Date.now() });
+        onClose();
+      };
+
+      return (
+        <Sheet title={trip ? "Reise bearbeiten" : "Neue Reise"} onClose={onClose}>
+          <Field label="Reisename">
+            <Input value={name} onChange={setName} placeholder="z.B. Toskana Sommer 2025" />
+          </Field>
+          <Field label="Reiseziel">
+            <Input value={dest} onChange={setDest} placeholder="z.B. Italien" />
+          </Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+            <Field label="Von"><Input type="date" value={startDate} onChange={setStartDate} /></Field>
+            <Field label="Bis"><Input type="date" value={endDate}   onChange={setEndDate}   /></Field>
+          </div>
+          <Btn onClick={save} full>Speichern</Btn>
+        </Sheet>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  REISE KARTE  (Startseite)
+    // ─────────────────────────────────────────────────────
+    function TripCard({ trip, count, coverUrl, onClick }) {
+      return (
+        <div onClick={onClick} style={{ background:C.card, borderRadius:20,
+          marginBottom:14, overflow:"hidden", cursor:"pointer",
+          boxShadow:"0 4px 22px rgba(28,25,22,0.09)", border:`1px solid ${C.border}` }}>
+          {coverUrl ? (
+            <div style={{ position:"relative" }}>
+              <img src={coverUrl} alt={trip.name}
+                style={{ width:"100%", height:190, objectFit:"cover", display:"block" }} />
+              <div style={{ position:"absolute", inset:0,
+                background:"linear-gradient(to bottom, transparent 35%, rgba(28,25,22,0.62))" }} />
+              <div style={{ position:"absolute", bottom:0, left:0, right:0, padding:"16px" }}>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22,
+                  fontWeight:800, color:"#fff" }}>{trip.name}</div>
+                {trip.destination && (
+                  <div style={{ fontSize:13, color:"rgba(255,255,255,0.82)", marginTop:2 }}>
+                    📍 {trip.destination}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ height:100, background:`linear-gradient(135deg, ${C.accentBg}, #FFF3E0)`,
+              display:"flex", alignItems:"center", justifyContent:"center", padding:"0 20px" }}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22,
+                fontWeight:800, color:C.accent, textAlign:"center" }}>{trip.name}</div>
+            </div>
+          )}
+          <div style={{ padding:"12px 16px", display:"flex",
+            justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontSize:13, color:C.textSec }}>
+              {fmtShort(trip.startDate)}{trip.endDate ? ` – ${fmtShort(trip.endDate)}` : ""}
+            </div>
+            <div style={{ fontSize:13, color:C.textSec }}>
+              {count} {count===1?"Eintrag":"Einträge"}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  STARTSEITE
+    // ─────────────────────────────────────────────────────
+    function Home({ trips, entries, onSelect, onAdd, onExport, onImport }) {
+      const [covers, setCovers] = useState({});
+
+      useEffect(() => {
+        trips.forEach(async trip => {
+          const all = entries
+            .filter(e => e.tripId===trip.id)
+            .sort((a,b) => a.date.localeCompare(b.date))
+            .flatMap(e => e.photos||[]);
+          if (all[0]) {
+            const url = await dbGetPhoto(all[0].id);
+            if (url) setCovers(prev => ({ ...prev, [trip.id]: url }));
+          }
+        });
+      }, [trips, entries]);
+
+      return (
+        <div style={{ background:C.bg, minHeight:"100vh", paddingBottom:40 }}>
+          {/* Header */}
+          <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`,
+            padding:"0 20px", paddingTop:"env(safe-area-inset-top)" }}>
+            <div style={{ height:62, display:"flex", justifyContent:"space-between",
+              alignItems:"center" }}>
+              <div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28,
+                  fontWeight:800, color:C.text, lineHeight:1 }}>Reisetagebuch</div>
+                <div style={{ fontSize:12, color:C.textSec, marginTop:2 }}>
+                  {trips.length} {trips.length===1?"Reise":"Reisen"}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <button onClick={onImport} title="Importieren"
+                  style={{ background:"#F0EDE8", border:"none", borderRadius:"50%",
+                    width:38, height:38, cursor:"pointer", fontSize:17,
+                    display:"flex", alignItems:"center", justifyContent:"center" }}>📥</button>
+                <button onClick={onExport} title="Exportieren"
+                  style={{ background:"#F0EDE8", border:"none", borderRadius:"50%",
+                    width:38, height:38, cursor:"pointer", fontSize:17,
+                    display:"flex", alignItems:"center", justifyContent:"center" }}>📤</button>
+                <button onClick={onAdd}
+                  style={{ background:C.accent, border:"none", color:"#fff",
+                    width:42, height:42, borderRadius:"50%", cursor:"pointer",
+                    fontSize:22, fontWeight:700, display:"flex", alignItems:"center",
+                    justifyContent:"center", boxShadow:`0 4px 16px rgba(200,135,74,.4)` }}>+</button>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding:"20px", maxWidth:620, margin:"0 auto" }}>
+            {trips.length===0 ? (
+              <div style={{ textAlign:"center", padding:"80px 0", color:C.textSec }}>
+                <div style={{ fontSize:64, marginBottom:16 }}>✈️</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:26,
+                  color:C.text, marginBottom:8 }}>Dein erstes Abenteuer</div>
+                <div style={{ fontSize:15, marginBottom:28, lineHeight:1.7 }}>
+                  Erstelle deine erste Reise und<br/>halte deine Erlebnisse fest.
+                </div>
+                <Btn onClick={onAdd}>Erste Reise erstellen</Btn>
+              </div>
+            ) : (
+              [...trips]
+                .sort((a,b) => b.createdAt - a.createdAt)
+                .map(t => (
+                  <TripCard
+                    key={t.id} trip={t}
+                    count={entries.filter(e => e.tripId===t.id).length}
+                    coverUrl={covers[t.id]}
+                    onClick={() => onSelect(t.id)}
+                  />
+                ))
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  ROOT APP
+    // ─────────────────────────────────────────────────────
+    function App() {
+      const [trips,   setTrips]   = useLocalStorage(STORAGE_TRIPS,   []);
+      const [entries, setEntries] = useLocalStorage(STORAGE_ENTRIES, []);
+      const [routes,  setRoutes]  = useLocalStorage(STORAGE_ROUTES,  {});
+      const [selTrip, setSelTrip] = useState(null);
+      const [showForm,setShowForm]= useState(false);
+      const importRef = useRef(null);
+
+      const saveTrip = t => setTrips(prev => {
+        const i = prev.findIndex(x => x.id===t.id);
+        return i>=0 ? prev.map(x => x.id===t.id?t:x) : [...prev, t];
+      });
+
+      const deleteTrip = async id => {
+        for (const e of entries.filter(x => x.tripId===id))
+          for (const p of (e.photos||[])) await dbDeletePhoto(p.id);
+        setEntries(prev => prev.filter(e => e.tripId!==id));
+        setTrips(prev => prev.filter(t => t.id!==id));
+        setRoutes(prev => { const r = {...prev}; delete r[id]; return r; });
+        setSelTrip(null);
+      };
+
+      const saveRoute = (tripId, geoJson) => {
+        setRoutes(prev => geoJson
+          ? { ...prev, [tripId]: geoJson }
+          : Object.fromEntries(Object.entries(prev).filter(([k]) => k !== tripId))
+        );
+      };
+
+      const saveEntry = e => setEntries(prev => {
+        const i = prev.findIndex(x => x.id===e.id);
+        return i>=0 ? prev.map(x => x.id===e.id?e:x) : [...prev, e];
+      });
+
+      const deleteEntry = id => setEntries(prev => prev.filter(e => e.id!==id));
+
+      // Export (Daten + Fotos → eine JSON-Datei → iCloud Drive)
+      const exportData = async () => {
+        const photos = await dbGetAllPhotos();
+        const datum  = new Date().toISOString().split("T")[0];
+        const blob   = new Blob([JSON.stringify({ trips, entries, photos,
+          exportedAt: new Date().toISOString() })], { type:"application/json" });
+        const url = URL.createObjectURL(blob);
+        const a   = document.createElement("a");
+        a.href = url; a.download = `reisetagebuch_backup_${datum}.json`;
+        a.click(); URL.revokeObjectURL(url);
+      };
+
+      // Import
+      const importData = async e => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async ev => {
+          try {
+            const d = JSON.parse(ev.target.result);
+            if (!d.trips || !d.entries) { alert("Ungültige Datei."); return; }
+            if (!window.confirm(
+              `${d.trips.length} Reise(n) und ${d.entries.length} Einträge importieren?\nAktuelle Daten werden ersetzt.`
+            )) return;
+            await dbClearPhotos();
+            for (const p of (d.photos||[])) await dbSavePhoto(p.id, p.dataUrl);
+            setTrips(d.trips);
+            setEntries(d.entries);
+          } catch { alert("Datei konnte nicht gelesen werden."); }
+          e.target.value = "";
+        };
+        reader.readAsText(file);
+      };
+
+      const selTripObj = trips.find(t => t.id===selTrip);
+
+      return (
+        <div style={{ maxWidth:620, margin:"0 auto", minHeight:"100vh", background:C.bg }}>
+          <input ref={importRef} type="file" accept=".json"
+            onChange={importData} style={{ display:"none" }} />
+
+          {selTripObj ? (
+            <TripScreen
+              trip={selTripObj} entries={entries}
+              route={routes[selTrip] || null}
+              onBack={() => setSelTrip(null)}
+              onSaveEntry={saveEntry}
+              onDeleteEntry={deleteEntry}
+              onDeleteTrip={deleteTrip}
+              onSaveRoute={saveRoute}
+            />
+          ) : (
+            <Home
+              trips={trips} entries={entries}
+              onSelect={setSelTrip}
+              onAdd={() => setShowForm(true)}
+              onExport={exportData}
+              onImport={() => importRef.current.click()}
+            />
+          )}
+
+          {showForm && (
+            <TripForm trip={null}
+              onSave={t => { saveTrip(t); setShowForm(false); }}
+              onClose={() => setShowForm(false)} />
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator)
+      window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+  </script>
+</body>
+</html>
