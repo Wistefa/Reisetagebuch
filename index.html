@@ -1906,45 +1906,147 @@
             doc.setDrawColor(220,215,208); doc.setLineWidth(0.4);
             doc.line(ML, y, ML+CW, y); y += 9;
 
-            // Text
+            // Text + Fotos – layout-aware (liest entry.layout)
             const eBodyText = entry.text || '';
-            if (eBodyText.trim()) {
-              sf(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
-              const lines = hasEmoji(eBodyText) ? splitMixed(doc,eBodyText,CW-2,EM11t) : doc.splitTextToSize(eBodyText,CW-2);
-              for (const l of lines) {
-                newPageIfNeeded(6.5);
-                sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11t); y += 6.5;
-              }
-              y += 6;
-            }
-
-            // Fotos
+            const eParas    = eBodyText.split(/\n+/).filter(p => p.trim());
             const allPhotoIds = entry.photos?.map(p=>p.id) || [];
             const pdata = allPhotoIds.length ? await dbGetPhotos(allPhotoIds) : {};
+            const eLayout = entry.layout || [];
+            const LHe = 6.2, PGAP = 4;
+            const EM11e = 11*0.3528*1.15, EM9e = 9*0.3528*1.15;
 
-            for (const p of (entry.photos||[])) {
-              const rawUrl = pdata[p.id]; if (!rawUrl) continue;
-              const dataUrl = await fixImageOrientation(rawUrl);
-              const dims = await new Promise(res => {
-                const img = new Image();
-                img.onload = () => res({w:img.naturalWidth, h:img.naturalHeight});
-                img.src = dataUrl;
-              });
-              let iw=CW, ih=(dims.h/dims.w)*iw;
-              if (ih>150) { ih=150; iw=(dims.w/dims.h)*ih; }
-              const capH = p.caption ? 12 : 0;
-              newPageIfNeeded(ih + capH + 10);
-              doc.addImage(dataUrl,'JPEG', ML+(CW-iw)/2, y, iw, ih, undefined,'MEDIUM');
-              y += ih + 3;
-              if (p.caption) {
-                sf(9,'italic',[138,132,124]);
-                const capLines = hasEmoji(p.caption) ? splitMixed(doc,p.caption,CW,EM9t) : doc.splitTextToSize(stripEmoji(p.caption),CW);
-                for (const cl of capLines) {
-                  const lw = mixedW(doc,cl,EM9t);
-                  await renderMixed(doc,cl,ML+(CW-lw)/2,y,EM9t,'italic',[138,132,124]); y+=5;
-                }
+            // Hilfsfunktion: Bild-Dimensionen ermitteln
+            const eDims = url => new Promise(res => {
+              const img = new Image(); img.onload = () => res({w:img.naturalWidth,h:img.naturalHeight}); img.src = url;
+            });
+
+            // Einzelnes Foto in PDF rendern (center oder side-float, gibt neues y zurück)
+            const renderEPhoto = async (item, startY) => {
+              const rawUrl = pdata[item.photoId]; if (!rawUrl) return startY;
+              const url = await fixImageOrientation(rawUrl);
+              const pMeta = (entry.photos||[]).find(p=>p.id===item.photoId);
+              const d = await eDims(url);
+              const maxW = item.float==='center' ? CW : Math.min(item.widthPx*PX_TO_MM, CW*0.55);
+              const photoW = Math.min(maxW, CW);
+              const photoH = (d.h/d.w)*photoW;
+              const capLines = pMeta?.caption ? doc.splitTextToSize(stripEmoji(pMeta.caption), photoW) : [];
+              const capH = capLines.length ? capLines.length*4.5+2 : 0;
+              if (item.float==='center') {
+                newPageIfNeeded(photoH+capH+6);
+                doc.addImage(url,'JPEG',ML+(CW-photoW)/2,y,photoW,photoH,undefined,'MEDIUM');
+                let cy=y+photoH+3;
+                if (capLines.length) { sf(8,'italic',[138,132,124]); capLines.forEach(cl=>{ doc.text(cl,PW/2,cy,{align:'center'}); cy+=4.5; }); }
+                y=cy+4; return y;
               }
-              y += 8;
+              const photoX = item.float==='left' ? ML : ML+CW-photoW;
+              doc.addImage(url,'JPEG',photoX,startY,photoW,photoH,undefined,'MEDIUM');
+              if (capLines.length) { sf(8,'italic',[138,132,124]); capLines.forEach((cl,ci)=>doc.text(cl,photoX+photoW/2,startY+photoH+2+ci*4.5,{align:'center'})); }
+              return startY+photoH+capH+(capLines.length?2:0)+3;
+            };
+
+            // Absatz rendern, optional mit Side-Float
+            const renderEPara = async (text, floatItem) => {
+              if (!floatItem) {
+                sf(11,'normal',[28,25,22]);
+                const lines = hasEmoji(text) ? splitMixed(doc,text,CW-2,EM11e) : doc.splitTextToSize(text,CW-2);
+                for (const l of lines) { newPageIfNeeded(LHe); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11e); y+=LHe; }
+                y+=3; return;
+              }
+              if (floatItem.float==='center') {
+                await renderEPhoto(floatItem, y);
+                sf(11,'normal',[28,25,22]);
+                const lines = hasEmoji(text) ? splitMixed(doc,text,CW-2,EM11e) : doc.splitTextToSize(text,CW-2);
+                for (const l of lines) { newPageIfNeeded(LHe); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11e); y+=LHe; }
+                y+=3; return;
+              }
+              // Side-Float (links oder rechts)
+              const rawUrl2 = pdata[floatItem.photoId];
+              if (!rawUrl2) { await renderEPara(text, null); return; }
+              const url = await fixImageOrientation(rawUrl2);
+              const d = await eDims(url);
+              const pMeta = (entry.photos||[]).find(p=>p.id===floatItem.photoId);
+              const photoW = Math.min(floatItem.widthPx*PX_TO_MM, CW*0.55);
+              const photoH = (d.h/d.w)*photoW;
+              const capSrc = pMeta?.caption || '';
+              const capLines = capSrc ? doc.splitTextToSize(stripEmoji(capSrc), photoW) : [];
+              const capH = capLines.length ? capLines.length*4.5+2 : 0;
+              const photoTotalH = photoH+capH+3;
+              const photoX = floatItem.float==='left' ? ML : ML+CW-photoW;
+              const textX  = floatItem.float==='left' ? ML+photoW+PGAP : ML;
+              const textW  = CW-photoW-PGAP;
+              newPageIfNeeded(Math.min(photoTotalH,50)+LHe);
+              const blockStart = y;
+              doc.addImage(url,'JPEG',photoX,blockStart,photoW,photoH,undefined,'MEDIUM');
+              if (capLines.length) { sf(8,'italic',[138,132,124]); capLines.forEach((cl,ci)=>doc.text(cl,photoX+photoW/2,blockStart+photoH+2+ci*4.5,{align:'center'})); }
+              const photoEndY = blockStart+photoTotalH;
+              sf(11,'normal',[28,25,22]);
+              const sideLines = hasEmoji(text) ? splitMixed(doc,text,textW-1,EM11e) : doc.splitTextToSize(text,textW-1);
+              let ly=blockStart, si=0;
+              while (si < sideLines.length && ly+LHe <= photoEndY+LHe) {
+                sf(11,'normal',[28,25,22]); await renderMixed(doc,sideLines[si],textX,ly,EM11e); ly+=LHe; si++;
+              }
+              y = Math.max(ly, photoEndY);
+              let charOffset=0;
+              for (let k=0; k<si; k++) { charOffset+=sideLines[k].length; while (charOffset<text.length&&/\s/.test(text[charOffset])) charOffset++; }
+              const remainText = text.slice(charOffset);
+              if (remainText) {
+                const remLines = hasEmoji(remainText) ? splitMixed(doc,remainText,CW-2,EM11e) : doc.splitTextToSize(remainText,CW-2);
+                for (const l of remLines) { newPageIfNeeded(LHe); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11e); y+=LHe; }
+              }
+              y+=3;
+            };
+
+            if (eLayout.length > 0) {
+              // Mit gespeichertem Layout rendern
+              const byPara = {};
+              eLayout.forEach(it => { (byPara[it.afterPara]||(byPara[it.afterPara]=[])).push(it); });
+              for (const it of (byPara[-1]||[])) await renderEPhoto(it, y);
+              for (let i=0; i<eParas.length; i++) {
+                const items = byPara[i]||[];
+                await renderEPara(eParas[i], items[0]||null);
+                for (let j=1; j<items.length; j++) await renderEPhoto(items[j], y);
+              }
+              for (const it of (byPara[eParas.length]||[])) await renderEPhoto(it, y);
+              // Nicht platzierte Fotos am Ende anfügen
+              const placedIds = new Set(eLayout.map(l=>l.photoId));
+              for (const p of (entry.photos||[])) {
+                if (placedIds.has(p.id)) continue;
+                const rawUrl = pdata[p.id]; if (!rawUrl) continue;
+                const dataUrl = await fixImageOrientation(rawUrl);
+                const d = await eDims(dataUrl);
+                let iw=CW, ih=(d.h/d.w)*iw; if (ih>150) { ih=150; iw=(d.w/d.h)*ih; }
+                newPageIfNeeded(ih+12+10);
+                doc.addImage(dataUrl,'JPEG',ML+(CW-iw)/2,y,iw,ih,undefined,'MEDIUM'); y+=ih+3;
+                if (p.caption) {
+                  sf(9,'italic',[138,132,124]);
+                  const capLines = hasEmoji(p.caption) ? splitMixed(doc,p.caption,CW,EM9e) : doc.splitTextToSize(stripEmoji(p.caption),CW);
+                  for (const cl of capLines) { const lw=mixedW(doc,cl,EM9e); await renderMixed(doc,cl,ML+(CW-lw)/2,y,EM9e,'italic',[138,132,124]); y+=5; }
+                }
+                y+=8;
+              }
+            } else {
+              // Kein Layout: Text dann alle Fotos sequenziell
+              if (eBodyText.trim()) {
+                sf(11,'normal',[28,25,22]);
+                const lines = hasEmoji(eBodyText) ? splitMixed(doc,eBodyText,CW-2,EM11t) : doc.splitTextToSize(eBodyText,CW-2);
+                for (const l of lines) { newPageIfNeeded(6.5); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11t); y+=6.5; }
+                y+=6;
+              }
+              for (const p of (entry.photos||[])) {
+                const rawUrl = pdata[p.id]; if (!rawUrl) continue;
+                const dataUrl = await fixImageOrientation(rawUrl);
+                const d = await eDims(dataUrl);
+                let iw=CW, ih=(d.h/d.w)*iw; if (ih>150) { ih=150; iw=(d.w/d.h)*ih; }
+                const capH = p.caption ? 12 : 0;
+                newPageIfNeeded(ih+capH+10);
+                doc.addImage(dataUrl,'JPEG',ML+(CW-iw)/2,y,iw,ih,undefined,'MEDIUM'); y+=ih+3;
+                if (p.caption) {
+                  sf(9,'italic',[138,132,124]);
+                  const capLines = hasEmoji(p.caption) ? splitMixed(doc,p.caption,CW,EM9t) : doc.splitTextToSize(stripEmoji(p.caption),CW);
+                  for (const cl of capLines) { const lw=mixedW(doc,cl,EM9t); await renderMixed(doc,cl,ML+(CW-lw)/2,y,EM9t,'italic',[138,132,124]); y+=5; }
+                }
+                y+=8;
+              }
             }
           }
 
