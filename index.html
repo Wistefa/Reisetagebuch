@@ -984,6 +984,7 @@
       const dragOver     = useRef(null);
 
       const paras = (entry.text || '').split(/\n+/).filter(p => p.trim());
+      const [pendingId, setPendingId] = useState(null); // Touch: ausgewähltes Foto wartet auf Platzierung
 
       useEffect(() => {
         if (entry.photos?.length)
@@ -995,6 +996,7 @@
           const without = prev.filter(l => l.photoId !== photoId);
           return [...without, { id: uid(), photoId, afterPara, float: fl, widthPx: 200 }];
         });
+        setPendingId(null);
       };
       const updItem  = (id, patch) => setLayout(prev => prev.map(l => l.id===id ? {...l,...patch} : l));
       const delItem  = (id) => { setLayout(prev => prev.filter(l => l.id!==id)); setSelId(null); };
@@ -1198,18 +1200,26 @@
 
             {/* Left: unplaced photos */}
             <div style={{ width:220, background:'#16213e', borderRight:'1px solid rgba(255,255,255,.08)', overflowY:'auto', padding:12, flexShrink:0 }}>
-              <div style={{ fontSize:10, textTransform:'uppercase', letterSpacing:1.2, color:'rgba(255,255,255,.4)', marginBottom:10 }}>Fotos</div>
+              <div style={{ fontSize:10, textTransform:'uppercase', letterSpacing:1.2, color:'rgba(255,255,255,.4)', marginBottom:6 }}>Fotos</div>
+              {pendingId && (
+                <div style={{ background:'rgba(200,135,74,.2)', border:'1px solid #c8874a', borderRadius:8, padding:'7px 8px', marginBottom:8, fontSize:10, color:'#c8874a', textAlign:'center' }}>
+                  👆 Jetzt Drop-Zone im Text antippen
+                </div>
+              )}
               {(entry.photos||[]).map(p => {
                 const placed = placedIds.has(p.id);
+                const isPending = pendingId === p.id;
                 return (
                   <div key={p.id}
                     draggable={!placed}
                     onDragStart={e => { e.dataTransfer.setData('photoId', p.id); e.dataTransfer.effectAllowed='copy'; }}
-                    style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(255,255,255,.05)',
-                      borderRadius:8, padding:'7px 8px', marginBottom:6, cursor: placed ? 'default' : 'grab',
-                      opacity: placed ? 0.4 : 1, border:'2px solid transparent', transition:'border-color .15s' }}
-                    onMouseEnter={e => !placed && (e.currentTarget.style.borderColor='#c8874a')}
-                    onMouseLeave={e => e.currentTarget.style.borderColor='transparent'}
+                    onClick={() => { if (!placed) setPendingId(isPending ? null : p.id); }}
+                    style={{ display:'flex', alignItems:'center', gap:8, background: isPending ? 'rgba(200,135,74,.15)' : 'rgba(255,255,255,.05)',
+                      borderRadius:8, padding:'7px 8px', marginBottom:6,
+                      cursor: placed ? 'default' : 'pointer',
+                      opacity: placed ? 0.4 : 1,
+                      border: isPending ? '2px solid #c8874a' : '2px solid transparent',
+                      transition:'border-color .15s' }}
                   >
                     {photoData[p.id]
                       ? <img src={photoData[p.id]} style={{ width:44, height:32, objectFit:'cover', borderRadius:4 }} />
@@ -1217,13 +1227,16 @@
                     }
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:11, color:'#e0e0e0', lineHeight:1.3 }}>{p.caption || 'Foto'}</div>
-                      <div style={{ fontSize:9, color:'rgba(255,255,255,.35)' }}>{placed ? 'platziert' : 'in Text ziehen'}</div>
+                      <div style={{ fontSize:9, color: isPending ? '#c8874a' : 'rgba(255,255,255,.35)' }}>
+                        {placed ? 'platziert' : isPending ? '✓ ausgewählt' : 'antippen zum Platzieren'}
+                      </div>
                     </div>
                   </div>
                 );
               })}
-              <div style={{ marginTop:16, padding:10, background:'rgba(255,255,255,.04)', borderRadius:8, fontSize:10.5, color:'rgba(255,255,255,.4)', lineHeight:1.6 }}>
-                💡 Foto in den Text ziehen. Foto anklicken → <strong style={{color:'rgba(255,255,255,.6)'}}>Links / Mitte / Rechts</strong> wählen.
+              <div style={{ marginTop:12, padding:10, background:'rgba(255,255,255,.04)', borderRadius:8, fontSize:10, color:'rgba(255,255,255,.4)', lineHeight:1.6 }}>
+                📱 <strong style={{color:'rgba(255,255,255,.6)'}}>iPad:</strong> Foto antippen → Drop-Zone antippen<br/>
+                🖥 <strong style={{color:'rgba(255,255,255,.6)'}}>Mac:</strong> Foto in Text ziehen
               </div>
             </div>
 
@@ -1245,7 +1258,7 @@
                   onClick={e => { if (e.target === e.currentTarget) setSelId(null); }}
                 >
                   {/* Drop zone before first paragraph */}
-                  <DropZone afterPara={-1} onDrop={placePhoto} layout={layout} paras={paras} />
+                  <DropZone afterPara={-1} onDrop={placePhoto} layout={layout} paras={paras} pendingId={pendingId} />
 
                   {paras.map((text, pi) => {
                     const items = layout.filter(l => l.afterPara===pi);
@@ -1262,7 +1275,7 @@
                           />
                         ))}
                         <p style={{ margin:0, marginBottom:12 }}>{text}</p>
-                        <DropZone afterPara={pi} onDrop={placePhoto} layout={layout} paras={paras} isAfter />
+                        <DropZone afterPara={pi} onDrop={placePhoto} layout={layout} paras={paras} pendingId={pendingId} />
                       </div>
                     );
                   })}
@@ -1324,23 +1337,25 @@
       );
     }
 
-    function DropZone({ afterPara, onDrop, layout, paras, isAfter }) {
+    function DropZone({ afterPara, onDrop, layout, paras, pendingId }) {
       const [over, setOver] = useState(false);
       const label = afterPara===-1 ? 'Vor dem Text' : afterPara===paras.length ? 'Nach dem Text' : `Nach Absatz ${afterPara+1}`;
+      const isActive = pendingId || over;
       return (
         <div
           onDragOver={e => { e.preventDefault(); setOver(true); }}
           onDragLeave={() => setOver(false)}
           onDrop={e => { e.preventDefault(); setOver(false); const id=e.dataTransfer.getData('photoId'); if (id) onDrop(id, afterPara); }}
+          onClick={() => { if (pendingId) onDrop(pendingId, afterPara); }}
           style={{
-            height: over ? 48 : 8, margin:'2px 0', borderRadius:6,
-            background: over ? 'rgba(200,135,74,.15)' : 'transparent',
-            border: over ? '2px dashed rgba(200,135,74,.6)' : '2px dashed transparent',
+            height: isActive ? 44 : 8, margin:'2px 0', borderRadius:6,
+            background: over ? 'rgba(200,135,74,.2)' : pendingId ? 'rgba(200,135,74,.08)' : 'transparent',
+            border: over ? '2px dashed rgba(200,135,74,.7)' : pendingId ? '2px dashed rgba(200,135,74,.4)' : '2px dashed transparent',
             display:'flex', alignItems:'center', justifyContent:'center',
             transition:'height .15s, background .15s',
-            fontSize:11, color:'#c8874a', cursor:'default',
+            fontSize:10, color:'#c8874a', cursor: pendingId ? 'pointer' : 'default',
           }}
-        >{over ? `📷 Hier einfügen — ${label}` : ''}</div>
+        >{over ? `📷 Hier einfügen — ${label}` : pendingId ? `+ ${label}` : ''}</div>
       );
     }
 
@@ -1387,7 +1402,15 @@
                 document.addEventListener('mousemove',mv);
                 document.addEventListener('mouseup',up);
               }}
-              style={{ position:'absolute', bottom: caption ? 16 : 0, right:-1, width:14, height:14, background:'#c8874a', borderRadius:'2px 0 2px 0', cursor:'se-resize', display:'flex', alignItems:'center', justifyContent:'center', fontSize:8, color:'#fff' }}
+              onTouchStart={e => {
+                e.stopPropagation();
+                const startX=e.touches[0].clientX, startW=item.widthPx;
+                const mv=ev => onResize(Math.max(80, Math.min(490, startW+(ev.touches[0].clientX-startX))));
+                const up=()=>{ document.removeEventListener('touchmove',mv); document.removeEventListener('touchend',up); };
+                document.addEventListener('touchmove',mv,{passive:true});
+                document.addEventListener('touchend',up);
+              }}
+              style={{ position:'absolute', bottom: caption ? 16 : 0, right:-1, width:22, height:22, background:'#c8874a', borderRadius:'2px 0 4px 0', cursor:'se-resize', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, color:'#fff' }}
             >↘</div>
           )}
         </div>
