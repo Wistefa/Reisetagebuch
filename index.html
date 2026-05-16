@@ -907,13 +907,13 @@
         setFont(10,'bold',[200,135,74]); doc.text(fmtWeekday(entry.date).toUpperCase(), ML, y); y += 7.5;
         setFont(26,'bold',[28,25,22]); doc.text(fmtDayMonth(entry.date), ML, y); y += 8;
         setFont(11,'normal',[138,132,124]); doc.text(String(fmtYear(entry.date)), ML, y); y += 7;
-        if (entry.location) { setFont(11,'normal',[138,132,124]); doc.text('Ort: ' + entry.location, ML, y); y += 7; }
+        if (entry.location) { setFont(11,'normal',[138,132,124]); doc.text(doc.splitTextToSize('Ort: '+entry.location, CW)[0], ML, y); y += 7; }
         y += 2;
         doc.setDrawColor(220,215,208); doc.setLineWidth(0.4); doc.line(ML, y, ML+CW, y); y += 9;
 
         if (entry.text) {
           setFont(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
-          const lines = doc.splitTextToSize(entry.text, CW);
+          const lines = doc.splitTextToSize(entry.text, CW - 2);
           lines.forEach(l => { newPageIfNeeded(6.2); doc.text(l, ML, y); y += 6.2; });
           y += 7;
         }
@@ -1098,7 +1098,7 @@
           doc.text(fmtDayMonth(entry.date), ML, y); y+=8;
           sf(11,'normal',[138,132,124]);
           doc.text(String(fmtYear(entry.date)), ML, y); y+=7;
-          if (entry.location) { sf(11,'normal',[138,132,124]); doc.text('📍 '+entry.location, ML, y); y+=7; }
+          if (entry.location) { sf(11,'normal',[138,132,124]); doc.text(doc.splitTextToSize('📍 '+entry.location, CW)[0], ML, y); y+=7; }
           y+=2;
           doc.setDrawColor(220,215,208); doc.setLineWidth(0.4);
           doc.line(ML, y, ML+CW, y); y+=9;
@@ -1148,14 +1148,14 @@
           const renderPara = async (text, floatItem) => {
             if (!floatItem) {
               sf(11,'normal',[28,25,22]);
-              const lines = doc.splitTextToSize(text, CW);
+              const lines = doc.splitTextToSize(text, CW - 2);
               for (const l of lines) { chk(LH); sf(11,'normal',[28,25,22]); doc.text(l,ML,y); y+=LH; }
               y+=3; return;
             }
             if (floatItem.float==='center') {
               await renderPhoto(floatItem, y);
               sf(11,'normal',[28,25,22]);
-              const lines = doc.splitTextToSize(text, CW);
+              const lines = doc.splitTextToSize(text, CW - 2);
               for (const l of lines) { chk(LH); doc.text(l,ML,y); y+=LH; }
               y+=3; return;
             }
@@ -1185,8 +1185,7 @@
             const photoEndY = blockStart+photoTotalH;
 
             sf(11,'normal',[28,25,22]);
-            const sideLines = doc.splitTextToSize(text, textW);
-            const fullLines = doc.splitTextToSize(text, CW);
+            const sideLines = doc.splitTextToSize(text, textW - 1);
             let ly = blockStart;
             let si = 0;
             // lines next to photo
@@ -1195,10 +1194,15 @@
             }
             // remaining lines full width below photo
             y = Math.max(ly, photoEndY);
-            const renderedChars = sideLines.slice(0,si).join(' ').length;
-            const remainText = text.slice(renderedChars).trimStart();
+            // track char offset reliably (join(' ') fails with multi-space or newlines)
+            let charOffset = 0;
+            for (let k = 0; k < si; k++) {
+              charOffset += sideLines[k].length;
+              while (charOffset < text.length && /\s/.test(text[charOffset])) charOffset++;
+            }
+            const remainText = text.slice(charOffset);
             if (remainText) {
-              const remLines = doc.splitTextToSize(remainText, CW);
+              const remLines = doc.splitTextToSize(remainText, CW - 2);
               for (const l of remLines) { chk(LH); sf(11,'normal',[28,25,22]); doc.text(l,ML,y); y+=LH; }
             }
             y+=3;
@@ -1637,7 +1641,7 @@
             // Ort
             if (entry.location) {
               sf(11,'normal',[138,132,124]);
-              doc.text('Ort: ' + entry.location, ML, y); y += 7;
+              doc.text(doc.splitTextToSize('Ort: '+entry.location, CW)[0], ML, y); y += 7;
             }
 
             // Trennlinie
@@ -1648,7 +1652,7 @@
             // Text
             if (entry.text) {
               sf(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
-              const lines = doc.splitTextToSize(entry.text, CW);
+              const lines = doc.splitTextToSize(entry.text, CW - 2);
               for (const l of lines) {
                 newPageIfNeeded(6.5);
                 doc.text(l, ML, y); y += 6.5;
