@@ -1647,118 +1647,232 @@
     //  DECKBLATT-EDITOR
     // ─────────────────────────────────────────────────────
     function CoverEditor({ trip, entries, onSave, onClose }) {
-      const [photos,  setPhotos]  = useState([]);
-      const [sel,     setSel]     = useState(trip.coverPhotos || []);
-      const [loading, setLoading] = useState(true);
+      const PREV_W = 500;
+      const PREV_H = Math.round(PREV_W * 297 / 210);  // ~707px
+
+      const coverRef = useRef(null);
+      const dragRef  = useRef(null);
+
+      const initCover = trip.cover || {};
+      const defaultDate = (trip.startDate ? fmtShort(trip.startDate) : '') +
+                          (trip.endDate   ? ' – ' + fmtShort(trip.endDate) : '');
+
+      const [coverPhotos,    setCoverPhotos]    = useState(initCover.photos   || []);
+      const [title,          setTitle]          = useState(initCover.title    ?? trip.name        ?? '');
+      const [subtitle,       setSubtitle]       = useState(initCover.subtitle ?? trip.destination ?? '');
+      const [intro,          setIntro]          = useState(initCover.intro    ?? '');
+      const [dateText,       setDateText]       = useState(initCover.dateText ?? defaultDate);
+      const [zoneH,          setZoneH]          = useState(initCover.zoneH   ?? 0.55);
+      const [selId,          setSelId]          = useState(null);
+      const [pendingPhotoId, setPendingPhotoId] = useState(null);
+      const [photoData,      setPhotoData]      = useState({});
+
+      const zoneH_px = Math.round(PREV_H * zoneH);
+      const placedIds = new Set(coverPhotos.map(p => p.photoId));
+      const selPhoto  = coverPhotos.find(p => p.id === selId);
+
+      const allMetas = entries.flatMap(e =>
+        (e.photos||[]).map(p => ({ ...p, entryDate: e.date }))
+      );
 
       useEffect(() => {
-        const items = [];
-        entries.forEach(e => (e.photos||[]).forEach(p => items.push({ id:p.id, caption:p.caption, entryDate:e.date })));
-        if (!items.length) { setLoading(false); return; }
-        dbGetPhotos(items.map(p => p.id)).then(data => {
-          setPhotos(items.filter(p => data[p.id]).map(p => ({ ...p, dataUrl: data[p.id] })));
-          setLoading(false);
-        });
+        const ids = allMetas.map(p => p.id);
+        if (ids.length) dbGetPhotos(ids).then(setPhotoData);
       }, []);
 
-      const toggle = id => setSel(prev => {
-        if (prev.includes(id)) return prev.filter(x => x !== id);
-        if (prev.length >= 3) return prev;
-        return [...prev, id];
-      });
+      // Global pointer move/up for drag
+      useEffect(() => {
+        const onMove = e => {
+          if (!dragRef.current || !coverRef.current) return;
+          const { type, id, startX, startY, orig } = dragRef.current;
+          const rect = coverRef.current.getBoundingClientRect();
+          const dx = (e.clientX - startX) / rect.width;
+          const dy = (e.clientY - startY) / rect.height;
+          setCoverPhotos(prev => prev.map(p => {
+            if (p.id !== id) return p;
+            if (type === 'move') return {
+              ...p,
+              x: Math.max(0, Math.min(1 - p.w, orig.x + dx)),
+              y: Math.max(0, Math.min(0.96, orig.y + dy)),
+            };
+            return { ...p, w: Math.max(0.1, Math.min(1 - orig.x, orig.w + dx)) };
+          }));
+        };
+        const onUp = () => { dragRef.current = null; };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup',   onUp);
+        return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+      }, []);
 
-      const base = { position:'fixed', inset:0, zIndex:320, background:'#1a1a2e',
-        display:'flex', flexDirection:'column', fontFamily:"'DM Sans',sans-serif" };
+      const startDrag = (e, id, type) => {
+        e.preventDefault(); e.stopPropagation();
+        const photo = coverPhotos.find(p => p.id === id); if (!photo) return;
+        dragRef.current = { type, id, startX: e.clientX, startY: e.clientY, orig: { ...photo } };
+        setSelId(id);
+      };
+
+      const placePhoto = (photoId, xFrac, yFrac) => {
+        if (placedIds.has(photoId)) return;
+        setCoverPhotos(prev => [...prev, { id: Date.now().toString(), photoId, x: Math.max(0, Math.min(0.55, xFrac)), y: Math.max(0, Math.min(0.85, yFrac)), w: 0.45 }]);
+        setPendingPhotoId(null);
+      };
+
+      const onZoneClick = e => {
+        if (dragRef.current) return;
+        if (!pendingPhotoId) { setSelId(null); return; }
+        const rect = coverRef.current.getBoundingClientRect();
+        placePhoto(pendingPhotoId,
+          (e.clientX - rect.left) / rect.width  - 0.225,
+          (e.clientY - rect.top)  / rect.height - 0.15
+        );
+      };
+
+      const onDrop = e => {
+        e.preventDefault();
+        const photoId = e.dataTransfer.getData('photoId'); if (!photoId || !coverRef.current) return;
+        const rect = coverRef.current.getBoundingClientRect();
+        placePhoto(photoId, (e.clientX - rect.left) / rect.width - 0.225, (e.clientY - rect.top) / rect.height - 0.15);
+      };
+
+      const inputStyle = { width:'100%', background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.12)', borderRadius:6, padding:'6px 8px', color:'#e0e0e0', fontSize:12, boxSizing:'border-box' };
 
       return (
-        <div style={base}>
-          {/* TopBar */}
-          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px',
-            paddingTop:'calc(10px + env(safe-area-inset-top))',
-            background:'#16213e', borderBottom:'1px solid rgba(255,255,255,.08)' }}>
-            <button onClick={onClose}
-              style={{ background:'none', border:'none', color:C.accent, fontSize:15,
-                fontFamily:'inherit', fontWeight:600, cursor:'pointer', padding:'8px 0' }}>
-              ← Zurück
-            </button>
-            <span style={{ flex:1, color:'#fff', fontWeight:700, fontSize:15 }}>
-              Deckblatt-Fotos
-            </span>
-            <button onClick={() => onSave(sel)}
-              style={{ background:C.accent, border:'none', color:'#fff', borderRadius:10,
-                padding:'7px 16px', fontFamily:'inherit', fontWeight:700, fontSize:13,
-                cursor:'pointer' }}>
-              ✓ Speichern
+        <div style={{ position:'fixed', inset:0, zIndex:320, background:'#1a1a2e', display:'flex', flexDirection:'column', fontFamily:"'DM Sans',sans-serif" }}>
+          {/* Top bar */}
+          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', paddingTop:'calc(10px + env(safe-area-inset-top))', background:'#16213e', borderBottom:'1px solid rgba(255,255,255,.08)', flexShrink:0 }}>
+            <button onClick={onClose} style={{ background:'rgba(255,255,255,.08)', border:'none', color:'#e0e0e0', borderRadius:8, padding:'6px 14px', cursor:'pointer', fontSize:13 }}>← Zurück</button>
+            <span style={{ flex:1, fontWeight:600, fontSize:15, color:'#e0e0e0' }}>Deckblatt-Editor</span>
+            <button onClick={() => onSave({ photos:coverPhotos, title, subtitle, intro, dateText, zoneH })}
+              style={{ background:'linear-gradient(135deg,#c8874a,#a06030)', color:'white', border:'none', borderRadius:8, padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+              💾 Speichern
             </button>
           </div>
 
-          {/* Hinweis */}
-          <div style={{ padding:'10px 16px 0', color:'rgba(255,255,255,.45)', fontSize:13 }}>
-            Wähle 1–3 Fotos für die Titelseite des PDFs
-            <span style={{ marginLeft:8, color: sel.length>0?C.accent:'rgba(255,255,255,.3)',
-              fontWeight:700 }}>({sel.length}/3 ausgewählt)</span>
-          </div>
-
-          {/* Layout-Vorschau Legende */}
-          {sel.length > 0 && (
-            <div style={{ padding:'8px 16px', display:'flex', gap:8, alignItems:'center' }}>
-              {[1,2,3].map(n => (
-                <div key={n} style={{ display:'flex', alignItems:'center', gap:5,
-                  opacity: sel.length>=n ? 1 : 0.2, fontSize:12, color:'rgba(255,255,255,.6)' }}>
-                  <div style={{ background:C.accent, color:'#fff', borderRadius:'50%',
-                    width:20, height:20, display:'flex', alignItems:'center',
-                    justifyContent:'center', fontWeight:700, fontSize:11 }}>{n}</div>
-                  {n===1 ? 'Hauptfoto' : n===2 ? 'links/oben' : 'rechts/unten'}
+          <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+            {/* Left: photo list */}
+            <div style={{ width:200, background:'#16213e', borderRight:'1px solid rgba(255,255,255,.08)', overflowY:'auto', padding:12, flexShrink:0 }}>
+              <div style={{ fontSize:10, textTransform:'uppercase', letterSpacing:1.2, color:'rgba(255,255,255,.4)', marginBottom:8 }}>Fotos</div>
+              {pendingPhotoId && (
+                <div style={{ background:'rgba(200,135,74,.2)', border:'1px solid #c8874a', borderRadius:8, padding:'7px 8px', marginBottom:8, fontSize:10, color:'#c8874a', textAlign:'center' }}>
+                  👆 Deckblatt antippen
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Foto-Raster */}
-          {loading ? (
-            <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center',
-              color:'rgba(255,255,255,.35)', fontSize:15 }}>Lade Fotos…</div>
-          ) : photos.length === 0 ? (
-            <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center',
-              color:'rgba(255,255,255,.35)', fontSize:15, textAlign:'center', padding:32 }}>
-              Noch keine Fotos in dieser Reise vorhanden.<br/>
-              Füge zuerst Fotos zu Tageseinträgen hinzu.
-            </div>
-          ) : (
-            <div style={{ flex:1, overflowY:'auto', padding:16,
-              display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
-              {photos.map(p => {
-                const idx = sel.indexOf(p.id);
-                const selected = idx >= 0;
-                const blocked = !selected && sel.length >= 3;
+              )}
+              {allMetas.map(p => {
+                const placed = placedIds.has(p.id);
+                const isPending = pendingPhotoId === p.id;
                 return (
-                  <div key={p.id} onClick={() => !blocked && toggle(p.id)}
-                    style={{ position:'relative', aspectRatio:'1', cursor: blocked?'default':'pointer',
-                      borderRadius:8, overflow:'hidden',
-                      outline: selected ? `3px solid ${C.accent}` : '3px solid transparent',
-                      opacity: blocked ? 0.35 : 1, transition:'opacity .15s' }}>
-                    <img src={p.dataUrl} alt={p.caption||''}
-                      style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
-                    {selected && (
-                      <div style={{ position:'absolute', top:5, right:5, background:C.accent,
-                        color:'#fff', borderRadius:'50%', width:24, height:24,
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        fontWeight:800, fontSize:13, boxShadow:'0 1px 4px rgba(0,0,0,.5)' }}>
-                        {idx + 1}
-                      </div>
-                    )}
-                    {p.entryDate && (
-                      <div style={{ position:'absolute', bottom:0, left:0, right:0,
-                        background:'rgba(0,0,0,.45)', color:'rgba(255,255,255,.8)',
-                        fontSize:10, padding:'2px 5px' }}>
-                        {fmtShort(p.entryDate)}
-                      </div>
-                    )}
+                  <div key={p.id}
+                    draggable={!placed}
+                    onDragStart={e => e.dataTransfer.setData('photoId', p.id)}
+                    onClick={() => { if (!placed) setPendingPhotoId(isPending ? null : p.id); }}
+                    style={{ display:'flex', alignItems:'center', gap:8, background: isPending ? 'rgba(200,135,74,.15)' : 'rgba(255,255,255,.05)', borderRadius:8, padding:'7px 8px', marginBottom:6, cursor: placed ? 'default' : 'pointer', opacity: placed ? 0.4 : 1, border: isPending ? '2px solid #c8874a' : '2px solid transparent' }}
+                  >
+                    {photoData[p.id]
+                      ? <img src={photoData[p.id]} style={{ width:44, height:32, objectFit:'cover', borderRadius:4 }} draggable={false} />
+                      : <div style={{ width:44, height:32, background:'#0f3460', borderRadius:4 }} />
+                    }
+                    <div style={{ flex:1, fontSize:10, color:'rgba(255,255,255,.65)', lineHeight:1.3 }}>
+                      <div>{placed ? '✓ platziert' : isPending ? '✓ ausgewählt' : (p.caption || '')}</div>
+                      <div style={{ color:'rgba(255,255,255,.35)' }}>{fmtShort(p.entryDate)}</div>
+                    </div>
                   </div>
                 );
               })}
             </div>
-          )}
+
+            {/* Center: A4 preview */}
+            <div style={{ flex:1, overflowY:'auto', padding:'28px 20px', display:'flex', justifyContent:'center', alignItems:'flex-start', background:'#1a1a2e' }}>
+              <div style={{ width:PREV_W, background:'white', boxShadow:'0 8px 40px rgba(0,0,0,.6)', flexShrink:0 }}>
+
+                {/* Photo zone – drag target */}
+                <div ref={coverRef}
+                  style={{ position:'relative', width:PREV_W, height:zoneH_px, background:'#e8e0d8', overflow:'hidden', cursor: pendingPhotoId ? 'crosshair' : 'default' }}
+                  onDrop={onDrop} onDragOver={e => e.preventDefault()} onClick={onZoneClick}
+                >
+                  {coverPhotos.length === 0 && (
+                    <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(0,0,0,.3)', fontSize:13, pointerEvents:'none', textAlign:'center', padding:20 }}>
+                      Fotos aus der Liste hierhin ziehen<br/>oder antippen → Deckblatt tippen
+                    </div>
+                  )}
+                  {coverPhotos.map(cp => {
+                    const imgUrl = photoData[cp.photoId];
+                    const px = Math.round(cp.x * PREV_W);
+                    const py = Math.round(cp.y * zoneH_px);
+                    const pw = Math.round(cp.w * PREV_W);
+                    const isSelected = selId === cp.id;
+                    return (
+                      <div key={cp.id}
+                        style={{ position:'absolute', left:px, top:py, width:pw, cursor:'move', outline: isSelected ? '2px solid #c8874a' : 'none', outlineOffset:1, touchAction:'none' }}
+                        onPointerDown={e => startDrag(e, cp.id, 'move')}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {imgUrl
+                          ? <img src={imgUrl} style={{ width:'100%', display:'block', userSelect:'none' }} draggable={false} />
+                          : <div style={{ width:'100%', paddingBottom:'66%', background:'#ccc' }} />
+                        }
+                        {isSelected && (<>
+                          <div onPointerDown={e => { e.stopPropagation(); setCoverPhotos(p => p.filter(x => x.id !== cp.id)); setSelId(null); }}
+                            style={{ position:'absolute', top:-10, right:-10, width:22, height:22, background:'#e74c3c', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontSize:14, cursor:'pointer', fontWeight:700, touchAction:'none' }}>×</div>
+                          <div onPointerDown={e => startDrag(e, cp.id, 'resize')}
+                            style={{ position:'absolute', bottom:0, right:0, width:16, height:16, background:'#c8874a', cursor:'nwse-resize', touchAction:'none' }} />
+                        </>)}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Orange separator */}
+                <div style={{ height:4, background:'linear-gradient(90deg,#c8874a,#e8c87a,#c8874a)' }} />
+
+                {/* Text preview */}
+                <div style={{ padding:'18px 32px 28px', fontFamily:'Georgia, serif', color:'#222' }}>
+                  <div style={{ fontSize:8, letterSpacing:3, color:'#bbb', marginBottom:8, fontFamily:'Arial' }}>REISETAGEBUCH</div>
+                  <div style={{ fontSize:26, fontWeight:700, lineHeight:1.2, marginBottom:6 }}>{title || trip.name || '–'}</div>
+                  {(subtitle || trip.destination) && <div style={{ fontSize:12, color:'#888', marginBottom:5, fontFamily:'Arial' }}>{subtitle || trip.destination}</div>}
+                  {dateText && <div style={{ fontSize:10, color:'#aaa', marginBottom:8, fontFamily:'Arial' }}>{dateText}</div>}
+                  {intro && <div style={{ fontSize:10, color:'#555', lineHeight:1.65, marginTop:10, borderTop:'1px solid #eee', paddingTop:10 }}>{intro}</div>}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: settings */}
+            <div style={{ width:220, background:'#16213e', borderLeft:'1px solid rgba(255,255,255,.08)', padding:12, overflowY:'auto', flexShrink:0 }}>
+              <div style={{ fontSize:10, textTransform:'uppercase', letterSpacing:1.2, color:'rgba(255,255,255,.4)', marginBottom:10 }}>Texte</div>
+
+              {[['Titel', title, setTitle, trip.name||''], ['Untertitel', subtitle, setSubtitle, trip.destination||''], ['Datum', dateText, setDateText, '']].map(([lbl, val, setter, ph]) => (
+                <div key={lbl} style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:10, color:'rgba(255,255,255,.45)', marginBottom:4 }}>{lbl}</div>
+                  <input value={val} onChange={e => setter(e.target.value)} placeholder={ph} style={inputStyle} />
+                </div>
+              ))}
+
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,.45)', marginBottom:4 }}>Einleitungstext</div>
+                <textarea value={intro} onChange={e => setIntro(e.target.value)} rows={4}
+                  style={{ ...inputStyle, resize:'vertical' }} />
+              </div>
+
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,.45)', marginBottom:6 }}>Fotozone: {Math.round(zoneH*100)}% der Seite</div>
+                <input type="range" min={0.3} max={0.75} step={0.05} value={zoneH}
+                  onChange={e => setZoneH(Number(e.target.value))} style={{ width:'100%' }} />
+              </div>
+
+              {selPhoto && (
+                <div style={{ padding:10, background:'rgba(200,135,74,.1)', border:'1px solid rgba(200,135,74,.3)', borderRadius:8 }}>
+                  <div style={{ fontSize:10, color:'#c8874a', marginBottom:8, fontWeight:600 }}>Ausgewähltes Foto</div>
+                  <div style={{ fontSize:10, color:'rgba(255,255,255,.45)', marginBottom:4 }}>Breite: {Math.round(selPhoto.w*100)}%</div>
+                  <input type="range" min={0.1} max={1.0} step={0.02} value={selPhoto.w}
+                    onChange={e => setCoverPhotos(prev => prev.map(p => p.id===selId ? {...p, w:Number(e.target.value)} : p))}
+                    style={{ width:'100%', marginBottom:10 }} />
+                  <button onClick={() => { setCoverPhotos(p => p.filter(x => x.id !== selId)); setSelId(null); }}
+                    style={{ width:'100%', background:'rgba(231,76,60,.2)', border:'1px solid rgba(231,76,60,.4)', color:'#e74c3c', borderRadius:6, padding:'6px', fontSize:11, cursor:'pointer' }}>
+                    🗑 Entfernen
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       );
     }
@@ -1800,13 +1914,30 @@
           };
 
           // ── Deckblatt ──────────────────────────────────────
-          const coverIds = trip.coverPhotos || [];
+          const cover = trip.cover;
           let photoAreaH = 0;
 
-          if (coverIds.length > 0) {
-            const cpRaw = await dbGetPhotos(coverIds);
+          if (cover?.photos?.length > 0) {
+            // Neues Format: frei positionierte Fotos
+            const zoneHmm = Math.round((cover.zoneH ?? 0.55) * PH);
+            photoAreaH = zoneHmm;
+            const cpIds = [...new Set(cover.photos.map(p => p.photoId))];
+            const cpRaw = await dbGetPhotos(cpIds);
+            for (const cp of cover.photos) {
+              const rawUrl = cpRaw[cp.photoId]; if (!rawUrl) continue;
+              const url = await fixImageOrientation(rawUrl);
+              const d = await new Promise(res => { const img=new Image(); img.onload=()=>res({w:img.naturalWidth,h:img.naturalHeight}); img.src=url; });
+              const xMm = cp.x * PW;
+              const yMm = cp.y * zoneHmm;
+              const wMm = cp.w * PW;
+              const hMm = (d.h / d.w) * wMm;
+              doc.addImage(url, 'JPEG', xMm, yMm, wMm, hMm, undefined, 'MEDIUM');
+            }
+          } else if (trip.coverPhotos?.length > 0) {
+            // Altes Format: fixe Layouts (Fallback)
+            const cpRaw = await dbGetPhotos(trip.coverPhotos);
             const cpFixed = [];
-            for (const id of coverIds) {
+            for (const id of trip.coverPhotos) {
               if (cpRaw[id]) cpFixed.push(await fixImageOrientation(cpRaw[id]));
             }
             if (cpFixed.length === 1) {
@@ -1814,26 +1945,18 @@
               doc.addImage(c, 'JPEG', 0, 0, 210, 165, undefined, 'MEDIUM');
               photoAreaH = 165;
             } else if (cpFixed.length === 2) {
-              const [c1, c2] = await Promise.all([
-                cropToRatio(cpFixed[0], 105, 155),
-                cropToRatio(cpFixed[1], 105, 155)
-              ]);
+              const [c1, c2] = await Promise.all([cropToRatio(cpFixed[0], 105, 155), cropToRatio(cpFixed[1], 105, 155)]);
               doc.addImage(c1, 'JPEG', 0, 0, 105, 155, undefined, 'MEDIUM');
               doc.addImage(c2, 'JPEG', 105, 0, 105, 155, undefined, 'MEDIUM');
               photoAreaH = 155;
             } else {
-              const [c1, c2, c3] = await Promise.all([
-                cropToRatio(cpFixed[0], 210, 118),
-                cropToRatio(cpFixed[1], 105, 80),
-                cropToRatio(cpFixed[2], 105, 80)
-              ]);
+              const [c1, c2, c3] = await Promise.all([cropToRatio(cpFixed[0], 210, 118), cropToRatio(cpFixed[1], 105, 80), cropToRatio(cpFixed[2], 105, 80)]);
               doc.addImage(c1, 'JPEG', 0, 0, 210, 118, undefined, 'MEDIUM');
               doc.addImage(c2, 'JPEG', 0, 118, 105, 80, undefined, 'MEDIUM');
               doc.addImage(c3, 'JPEG', 105, 118, 105, 80, undefined, 'MEDIUM');
               photoAreaH = 198;
             }
           } else {
-            // Kein Foto: dekorativer Farbblock oben
             doc.setFillColor(200,135,74);
             doc.rect(0, 0, PW, 5, 'F');
           }
@@ -1846,23 +1969,38 @@
           sf(9,'normal',[160,150,140]);
           doc.text('REISETAGEBUCH', ML, dy); dy += 11;
 
+          // Titel – aus Cover-Einstellungen oder trip.name
+          const coverTitle = cover?.title || trip.name || '';
           sf(32,'bold',[28,25,22]);
-          const titleLines = doc.splitTextToSize(stripEmoji(trip.name), CW - 2);
+          const titleLines = doc.splitTextToSize(stripEmoji(coverTitle), CW - 2);
           titleLines.forEach((l,i) => doc.text(l, ML, dy + i*14));
           dy += titleLines.length * 14;
 
-          if (trip.destination) {
+          // Untertitel
+          const coverSubtitle = cover?.subtitle ?? trip.destination ?? '';
+          if (coverSubtitle) {
             sf(14,'normal',[138,132,124]);
-            doc.text(doc.splitTextToSize('Ziel: '+stripEmoji(trip.destination), CW)[0], ML, dy + 5);
+            doc.text(doc.splitTextToSize(stripEmoji(coverSubtitle), CW)[0], ML, dy + 5);
             dy += 13;
           }
 
+          // Datum
+          const coverDate = cover?.dateText || (fmtShort(trip.startDate) + (trip.endDate ? ' – ' + fmtShort(trip.endDate) : ''));
           sf(11,'normal',[138,132,124]);
-          const zeitraum = fmtShort(trip.startDate) + (trip.endDate ? ' – ' + fmtShort(trip.endDate) : '');
-          doc.text(zeitraum, ML, dy + 5);
+          doc.text(stripEmoji(coverDate), ML, dy + 5);
           dy += 11;
           sf(10,'normal',[160,150,140]);
           doc.text(`${tripEntries.length} ${tripEntries.length===1?'Eintrag':'Einträge'}`, ML, dy + 5);
+
+          // Einleitungstext
+          if (cover?.intro) {
+            dy += 14;
+            doc.setDrawColor(220,215,208); doc.setLineWidth(0.4);
+            doc.line(ML, dy, ML+CW, dy); dy += 8;
+            sf(11,'normal',[80,75,70]);
+            const introLines = doc.splitTextToSize(stripEmoji(cover.intro), CW - 2);
+            for (const l of introLines) { if (dy > PH - 30) break; doc.text(l, ML, dy); dy += 6.5; }
+          }
 
           doc.setFillColor(200,135,74);
           doc.rect(0, PH-5, PW, 5, 'F');
@@ -2087,8 +2225,8 @@
           trip={trip}
           entries={tripEntries}
           onClose={() => setShowCoverEditor(false)}
-          onSave={coverPhotos => {
-            onSaveTrip({ ...trip, coverPhotos });
+          onSave={cover => {
+            onSaveTrip({ ...trip, cover });
             setShowCoverEditor(false);
           }}
         />
@@ -2135,11 +2273,11 @@
                     fontSize:12, fontWeight:700, color:C.accent, fontFamily:"inherit",
                     display:'flex', alignItems:'center', gap:4, position:'relative' }}>
                   🖼️ Deckblatt
-                  {(trip.coverPhotos?.length > 0) && (
+                  {(trip.cover?.photos?.length > 0 || trip.coverPhotos?.length > 0) && (
                     <span style={{ fontSize:9, background:C.accent, color:'#fff',
                       borderRadius:'50%', width:14, height:14, display:'flex',
                       alignItems:'center', justifyContent:'center', fontWeight:800 }}>
-                      {trip.coverPhotos.length}
+                      {trip.cover?.photos?.length || trip.coverPhotos?.length}
                     </span>
                   )}
                 </button>
