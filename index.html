@@ -237,6 +237,15 @@
       });
     }
 
+    // Emojis aus Text entfernen (jsPDF-Schriften kennen keine Emoji-Glyphen)
+    function stripEmoji(str) {
+      if (!str) return '';
+      return str.replace(/\p{Extended_Pictographic}[︎️]?/gu, '')
+                .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+                .replace(/  +/g, ' ')
+                .trim();
+    }
+
     // Foto auf Zielformat zuschneiden (object-fit: cover) für Deckblatt
     function cropToRatio(dataUrl, targetW, targetH) {
       return new Promise(res => {
@@ -927,13 +936,15 @@
         setFont(10,'bold',[200,135,74]); doc.text(fmtWeekday(entry.date).toUpperCase(), ML, y); y += 7.5;
         setFont(26,'bold',[28,25,22]); doc.text(fmtDayMonth(entry.date), ML, y); y += 8;
         setFont(11,'normal',[138,132,124]); doc.text(String(fmtYear(entry.date)), ML, y); y += 7;
-        if (entry.location) { setFont(11,'normal',[138,132,124]); doc.text(doc.splitTextToSize('Ort: '+entry.location, CW)[0], ML, y); y += 7; }
+        const cleanLoc  = stripEmoji(entry.location || '');
+        const cleanText = stripEmoji(entry.text || '');
+        if (cleanLoc) { setFont(11,'normal',[138,132,124]); doc.text(doc.splitTextToSize('Ort: '+cleanLoc, CW)[0], ML, y); y += 7; }
         y += 2;
         doc.setDrawColor(220,215,208); doc.setLineWidth(0.4); doc.line(ML, y, ML+CW, y); y += 9;
 
-        if (entry.text) {
+        if (cleanText) {
           setFont(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
-          const lines = doc.splitTextToSize(entry.text, CW - 2);
+          const lines = doc.splitTextToSize(cleanText, CW - 2);
           lines.forEach(l => { newPageIfNeeded(6.2); doc.text(l, ML, y); y += 6.2; });
           y += 7;
         }
@@ -947,8 +958,9 @@
           newPageIfNeeded(ih+(p.caption?10:0)+8);
           doc.addImage(dataUrl,'JPEG',ML+(CW-iw)/2,y,iw,ih,undefined,'MEDIUM'); y+=ih+3;
           if (p.caption) {
+            const cleanCap = stripEmoji(p.caption);
             setFont(9,'italic',[138,132,124]);
-            doc.splitTextToSize(p.caption,CW).forEach(cl => { doc.text(cl,PW/2,y,{align:'center'}); y+=5; });
+            doc.splitTextToSize(cleanCap,CW).forEach(cl => { doc.text(cl,PW/2,y,{align:'center'}); y+=5; });
           }
           y += 7;
         }
@@ -958,7 +970,7 @@
           doc.setPage(i);
           setFont(7.5,'normal',[180,174,168]);
           doc.text('Reisetagebuch', ML, PH-8);
-          if (entry.location) doc.text(entry.location, PW/2, PH-8, {align:'center'});
+          if (cleanLoc) doc.text(stripEmoji(cleanLoc), PW/2, PH-8, {align:'center'});
           doc.text(fmtShort(entry.date), ML+CW, PH-8, {align:'right'});
           if (total>1) doc.text(`${i} / ${total}`, PW/2, PH-3, {align:'center'});
           doc.setDrawColor(200,135,74); doc.setLineWidth(0.5); doc.line(ML, PH-12, ML+CW, PH-12);
@@ -1070,7 +1082,7 @@
       const [generating, setGenerating] = useState(false);
       const [saved,      setSaved]      = useState(false);
 
-      const paras = (entry.text || '').split(/\n+/).filter(p => p.trim());
+      const paras = stripEmoji(entry.text || '').split(/\n+/).filter(p => p.trim());
       const [pendingId, setPendingId] = useState(null); // Touch: ausgewähltes Foto wartet auf Platzierung
 
       useEffect(() => {
@@ -1118,7 +1130,8 @@
           doc.text(fmtDayMonth(entry.date), ML, y); y+=8;
           sf(11,'normal',[138,132,124]);
           doc.text(String(fmtYear(entry.date)), ML, y); y+=7;
-          if (entry.location) { sf(11,'normal',[138,132,124]); doc.text(doc.splitTextToSize('📍 '+entry.location, CW)[0], ML, y); y+=7; }
+          const _cleanLoc = stripEmoji(entry.location || '');
+          if (_cleanLoc) { sf(11,'normal',[138,132,124]); doc.text(doc.splitTextToSize('Ort: '+_cleanLoc, CW)[0], ML, y); y+=7; }
           y+=2;
           doc.setDrawColor(220,215,208); doc.setLineWidth(0.4);
           doc.line(ML, y, ML+CW, y); y+=9;
@@ -1141,7 +1154,7 @@
             const maxW = item.float==='center' ? CW : Math.min(item.widthPx*PX_TO_MM, CW*0.55);
             const photoW = Math.min(maxW, CW);
             const photoH = (d.h/d.w)*photoW;
-            const capLines = pMeta?.caption ? doc.splitTextToSize(pMeta.caption, photoW) : [];
+            const capLines = pMeta?.caption ? doc.splitTextToSize(stripEmoji(pMeta.caption), photoW) : [];
             const capH = capLines.length ? capLines.length*4.5+2 : 0;
 
             if (item.float==='center') {
@@ -1187,7 +1200,7 @@
             const pMeta = (entry.photos||[]).find(p=>p.id===floatItem.photoId);
             const photoW = Math.min(floatItem.widthPx*PX_TO_MM, CW*0.55);
             const photoH = (d.h/d.w)*photoW;
-            const capLines = pMeta?.caption ? doc.splitTextToSize(pMeta.caption, photoW) : [];
+            const capLines = pMeta?.caption ? doc.splitTextToSize(stripEmoji(pMeta.caption), photoW) : [];
             const capH = capLines.length ? capLines.length*4.5+2 : 0;
             const photoTotalH = photoH+capH+3;
 
@@ -1248,7 +1261,7 @@
             doc.setPage(i);
             sf(7.5,'normal',[180,174,168]);
             doc.text('Reisetagebuch', ML, PH-8);
-            if (entry.location) doc.text(entry.location, PW/2, PH-8, {align:'center'});
+            if (_cleanLoc) doc.text(_cleanLoc, PW/2, PH-8, {align:'center'});
             doc.text(fmtShort(entry.date), ML+CW, PH-8, {align:'right'});
             if (total>1) doc.text(`${i} / ${total}`, PW/2, PH-3, {align:'center'});
             doc.setDrawColor(200,135,74); doc.setLineWidth(0.5);
@@ -1770,13 +1783,13 @@
           doc.text('REISETAGEBUCH', ML, dy); dy += 11;
 
           sf(32,'bold',[28,25,22]);
-          const titleLines = doc.splitTextToSize(trip.name, CW - 2);
+          const titleLines = doc.splitTextToSize(stripEmoji(trip.name), CW - 2);
           titleLines.forEach((l,i) => doc.text(l, ML, dy + i*14));
           dy += titleLines.length * 14;
 
           if (trip.destination) {
             sf(14,'normal',[138,132,124]);
-            doc.text(doc.splitTextToSize('📍 '+trip.destination, CW)[0], ML, dy + 5);
+            doc.text(doc.splitTextToSize('Ziel: '+stripEmoji(trip.destination), CW)[0], ML, dy + 5);
             dy += 13;
           }
 
@@ -1796,9 +1809,12 @@
             doc.addPage();
             y = MT;
 
+            const eCleanLoc  = stripEmoji(entry.location || '');
+            const eCleanText = stripEmoji(entry.text || '');
+
             // Seitenkopf: Reisename klein
             sf(7.5,'normal',[180,174,168]);
-            doc.text(trip.name.toUpperCase(), ML, y);
+            doc.text(stripEmoji(trip.name).toUpperCase(), ML, y);
             sf(7.5,'normal',[180,174,168]);
             doc.text(`Tag ${ei+1} von ${tripEntries.length}`, ML+CW, y, {align:'right'});
             y += 7;
@@ -1820,9 +1836,9 @@
             doc.text(String(fmtYear(entry.date)), ML, y); y += 6;
 
             // Ort
-            if (entry.location) {
+            if (eCleanLoc) {
               sf(11,'normal',[138,132,124]);
-              doc.text(doc.splitTextToSize('Ort: '+entry.location, CW)[0], ML, y); y += 7;
+              doc.text(doc.splitTextToSize('Ort: '+eCleanLoc, CW)[0], ML, y); y += 7;
             }
 
             // Trennlinie
@@ -1831,9 +1847,9 @@
             doc.line(ML, y, ML+CW, y); y += 9;
 
             // Text
-            if (entry.text) {
+            if (eCleanText) {
               sf(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
-              const lines = doc.splitTextToSize(entry.text, CW - 2);
+              const lines = doc.splitTextToSize(eCleanText, CW - 2);
               for (const l of lines) {
                 newPageIfNeeded(6.5);
                 doc.text(l, ML, y); y += 6.5;
@@ -1860,8 +1876,9 @@
               doc.addImage(dataUrl,'JPEG', ML+(CW-iw)/2, y, iw, ih, undefined,'MEDIUM');
               y += ih + 3;
               if (p.caption) {
+                const cleanCap = stripEmoji(p.caption);
                 sf(9,'italic',[138,132,124]);
-                doc.splitTextToSize(p.caption, CW).forEach(cl => {
+                doc.splitTextToSize(cleanCap, CW).forEach(cl => {
                   doc.text(cl, PW/2, y, {align:'center'}); y += 5;
                 });
               }
@@ -1874,7 +1891,7 @@
           for (let i=2; i<=total; i++) {
             doc.setPage(i);
             sf(7.5,'normal',[180,174,168]);
-            doc.text(trip.name, ML, PH-9);
+            doc.text(stripEmoji(trip.name), ML, PH-9);
             doc.text(fmtShort(trip.startDate), ML+CW, PH-9, {align:'right'});
             doc.text(`${i-1} / ${total-1}`, PW/2, PH-9, {align:'center'});
             doc.setDrawColor(234,230,224); doc.setLineWidth(0.3);
