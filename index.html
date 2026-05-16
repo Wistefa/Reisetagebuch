@@ -246,6 +246,55 @@
                 .trim();
     }
 
+    // ── Emoji-Rendering in jsPDF via System-Emoji-Font auf Canvas ────────
+    const _emojiCache = {};
+    function hasEmoji(s) { return /\p{Extended_Pictographic}/u.test(s||''); }
+    async function getEmojiImg(ch) {
+      if (_emojiCache[ch]) return _emojiCache[ch];
+      const sz = 72;
+      const cv = document.createElement('canvas');
+      cv.width = sz; cv.height = sz;
+      const ctx = cv.getContext('2d');
+      ctx.font = `${Math.round(sz*0.72)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(ch, sz*0.05, sz*0.56);
+      return (_emojiCache[ch] = cv.toDataURL('image/png'));
+    }
+    function mixedW(doc, s, emMm) {
+      let w = 0;
+      for (const ch of [...(s||'')]) {
+        if (/[︀-️‍]/.test(ch)) continue;
+        w += /\p{Extended_Pictographic}/u.test(ch) ? emMm : doc.getTextWidth(ch);
+      }
+      return w;
+    }
+    function splitMixed(doc, text, maxW, emMm) {
+      if (!text) return [];
+      const spW = doc.getTextWidth(' '), lines=[], words=text.split(' ');
+      let line='', lw=0;
+      for (const word of words) {
+        const ww = mixedW(doc, word, emMm);
+        if (line && lw+spW+ww > maxW) { lines.push(line); line=word; lw=ww; }
+        else { if(line){line+=' ';lw+=spW;} line+=word; lw+=ww; }
+      }
+      if (line) lines.push(line);
+      return lines.length ? lines : [''];
+    }
+    async function renderMixed(doc, text, x, y, emMm, style='normal', col=[28,25,22]) {
+      doc.setFont('helvetica', style); doc.setTextColor(...col);
+      let cx=x, buf='';
+      const flush=()=>{ if(!buf)return; doc.text(buf,cx,y); cx+=doc.getTextWidth(buf); buf=''; };
+      for (const ch of [...(text||'')]) {
+        if (/[︀-️‍]/.test(ch)) continue;
+        if (/\p{Extended_Pictographic}/u.test(ch)) {
+          flush();
+          doc.addImage(await getEmojiImg(ch),'PNG',cx,y-emMm*0.82,emMm,emMm,undefined,'FAST');
+          cx+=emMm;
+        } else { buf+=ch; }
+      }
+      flush();
+    }
+
     // Foto auf Zielformat zuschneiden (object-fit: cover) für Deckblatt
     function cropToRatio(dataUrl, targetW, targetH) {
       return new Promise(res => {
@@ -256,10 +305,17 @@
           let sx, sy, sw, sh;
           if (srcR > dstR) { sh = img.height; sw = sh * dstR; sy = 0; sx = (img.width - sw) / 2; }
           else             { sw = img.width;  sh = sw / dstR; sx = 0; sy = (img.height - sh) / 2; }
+          // Auf max 1400px skalieren (reicht für Druck, verhindert riesige Dateien)
+          const maxPx = 1400;
+          const outW = Math.max(10, Math.min(Math.round(sw), maxPx));
+          const outH = Math.max(10, Math.round(outW * (targetH / targetW)));
           const c = document.createElement('canvas');
-          c.width = Math.round(sw); c.height = Math.round(sh);
-          c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
-          res(c.toDataURL('image/jpeg', 0.88));
+          c.width = outW; c.height = outH;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#ffffff'; // weißer Hintergrund – verhindert schwarz bei JPEG-Export
+          ctx.fillRect(0, 0, outW, outH);
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+          res(c.toDataURL('image/jpeg', 0.85));
         };
         img.onerror = () => res(dataUrl);
         img.src = dataUrl;
@@ -936,16 +992,18 @@
         setFont(10,'bold',[200,135,74]); doc.text(fmtWeekday(entry.date).toUpperCase(), ML, y); y += 7.5;
         setFont(26,'bold',[28,25,22]); doc.text(fmtDayMonth(entry.date), ML, y); y += 8;
         setFont(11,'normal',[138,132,124]); doc.text(String(fmtYear(entry.date)), ML, y); y += 7;
-        const cleanLoc  = stripEmoji(entry.location || '');
-        const cleanText = stripEmoji(entry.text || '');
+        const cleanLoc = stripEmoji(entry.location || '');
+        const EM11 = 11 * 0.3528 * 1.15; // emoji-Größe in mm (proportional zur Schriftgröße)
+        const EM9  =  9 * 0.3528 * 1.15;
         if (cleanLoc) { setFont(11,'normal',[138,132,124]); doc.text(doc.splitTextToSize('Ort: '+cleanLoc, CW)[0], ML, y); y += 7; }
         y += 2;
         doc.setDrawColor(220,215,208); doc.setLineWidth(0.4); doc.line(ML, y, ML+CW, y); y += 9;
 
-        if (cleanText) {
+        const bodyText = entry.text || '';
+        if (bodyText.trim()) {
           setFont(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
-          const lines = doc.splitTextToSize(cleanText, CW - 2);
-          lines.forEach(l => { newPageIfNeeded(6.2); doc.text(l, ML, y); y += 6.2; });
+          const lines = hasEmoji(bodyText) ? splitMixed(doc,bodyText,CW-2,EM11) : doc.splitTextToSize(bodyText,CW-2);
+          for (const l of lines) { newPageIfNeeded(6.2); setFont(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11); y+=6.2; }
           y += 7;
         }
 
@@ -958,9 +1016,12 @@
           newPageIfNeeded(ih+(p.caption?10:0)+8);
           doc.addImage(dataUrl,'JPEG',ML+(CW-iw)/2,y,iw,ih,undefined,'MEDIUM'); y+=ih+3;
           if (p.caption) {
-            const cleanCap = stripEmoji(p.caption);
             setFont(9,'italic',[138,132,124]);
-            doc.splitTextToSize(cleanCap,CW).forEach(cl => { doc.text(cl,PW/2,y,{align:'center'}); y+=5; });
+            const capLines = hasEmoji(p.caption) ? splitMixed(doc,p.caption,CW,EM9) : doc.splitTextToSize(stripEmoji(p.caption),CW);
+            for (const cl of capLines) {
+              const lw = mixedW(doc,cl,EM9);
+              await renderMixed(doc,cl,ML+(CW-lw)/2,y,EM9,'italic',[138,132,124]); y+=5;
+            }
           }
           y += 7;
         }
@@ -1082,7 +1143,7 @@
       const [generating, setGenerating] = useState(false);
       const [saved,      setSaved]      = useState(false);
 
-      const paras = stripEmoji(entry.text || '').split(/\n+/).filter(p => p.trim());
+      const paras = (entry.text || '').split(/\n+/).filter(p => p.trim());
       const [pendingId, setPendingId] = useState(null); // Touch: ausgewähltes Foto wartet auf Platzierung
 
       useEffect(() => {
@@ -1178,18 +1239,19 @@
           };
 
           // Render paragraph text with optional side float
+          const EM11 = 11*0.3528*1.15;
           const renderPara = async (text, floatItem) => {
             if (!floatItem) {
               sf(11,'normal',[28,25,22]);
-              const lines = doc.splitTextToSize(text, CW - 2);
-              for (const l of lines) { chk(LH); sf(11,'normal',[28,25,22]); doc.text(l,ML,y); y+=LH; }
+              const lines = hasEmoji(text) ? splitMixed(doc,text,CW-2,EM11) : doc.splitTextToSize(text,CW-2);
+              for (const l of lines) { chk(LH); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11); y+=LH; }
               y+=3; return;
             }
             if (floatItem.float==='center') {
               await renderPhoto(floatItem, y);
               sf(11,'normal',[28,25,22]);
-              const lines = doc.splitTextToSize(text, CW - 2);
-              for (const l of lines) { chk(LH); doc.text(l,ML,y); y+=LH; }
+              const lines = hasEmoji(text) ? splitMixed(doc,text,CW-2,EM11) : doc.splitTextToSize(text,CW-2);
+              for (const l of lines) { chk(LH); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11); y+=LH; }
               y+=3; return;
             }
             // side float
@@ -1200,7 +1262,8 @@
             const pMeta = (entry.photos||[]).find(p=>p.id===floatItem.photoId);
             const photoW = Math.min(floatItem.widthPx*PX_TO_MM, CW*0.55);
             const photoH = (d.h/d.w)*photoW;
-            const capLines = pMeta?.caption ? doc.splitTextToSize(stripEmoji(pMeta.caption), photoW) : [];
+            const capSrc = pMeta?.caption || '';
+            const capLines = capSrc ? doc.splitTextToSize(stripEmoji(capSrc), photoW) : [];
             const capH = capLines.length ? capLines.length*4.5+2 : 0;
             const photoTotalH = photoH+capH+3;
 
@@ -1218,25 +1281,21 @@
             const photoEndY = blockStart+photoTotalH;
 
             sf(11,'normal',[28,25,22]);
-            const sideLines = doc.splitTextToSize(text, textW - 1);
-            let ly = blockStart;
-            let si = 0;
-            // lines next to photo
+            const sideLines = hasEmoji(text) ? splitMixed(doc,text,textW-1,EM11) : doc.splitTextToSize(text,textW-1);
+            let ly = blockStart, si = 0;
             while (si < sideLines.length && ly+LH <= photoEndY+LH) {
-              doc.text(sideLines[si], textX, ly); ly+=LH; si++;
+              sf(11,'normal',[28,25,22]); await renderMixed(doc,sideLines[si],textX,ly,EM11); ly+=LH; si++;
             }
-            // remaining lines full width below photo
             y = Math.max(ly, photoEndY);
-            // track char offset reliably (join(' ') fails with multi-space or newlines)
             let charOffset = 0;
-            for (let k = 0; k < si; k++) {
+            for (let k=0; k<si; k++) {
               charOffset += sideLines[k].length;
               while (charOffset < text.length && /\s/.test(text[charOffset])) charOffset++;
             }
             const remainText = text.slice(charOffset);
             if (remainText) {
-              const remLines = doc.splitTextToSize(remainText, CW - 2);
-              for (const l of remLines) { chk(LH); sf(11,'normal',[28,25,22]); doc.text(l,ML,y); y+=LH; }
+              const remLines = hasEmoji(remainText) ? splitMixed(doc,remainText,CW-2,EM11) : doc.splitTextToSize(remainText,CW-2);
+              for (const l of remLines) { chk(LH); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11); y+=LH; }
             }
             y+=3;
           };
@@ -1809,8 +1868,8 @@
             doc.addPage();
             y = MT;
 
-            const eCleanLoc  = stripEmoji(entry.location || '');
-            const eCleanText = stripEmoji(entry.text || '');
+            const eCleanLoc = stripEmoji(entry.location || '');
+            const EM11t = 11*0.3528*1.15, EM9t = 9*0.3528*1.15;
 
             // Seitenkopf: Reisename klein
             sf(7.5,'normal',[180,174,168]);
@@ -1847,12 +1906,13 @@
             doc.line(ML, y, ML+CW, y); y += 9;
 
             // Text
-            if (eCleanText) {
+            const eBodyText = entry.text || '';
+            if (eBodyText.trim()) {
               sf(11,'normal',[28,25,22]); doc.setLineHeightFactor(1.6);
-              const lines = doc.splitTextToSize(eCleanText, CW - 2);
+              const lines = hasEmoji(eBodyText) ? splitMixed(doc,eBodyText,CW-2,EM11t) : doc.splitTextToSize(eBodyText,CW-2);
               for (const l of lines) {
                 newPageIfNeeded(6.5);
-                doc.text(l, ML, y); y += 6.5;
+                sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11t); y += 6.5;
               }
               y += 6;
             }
@@ -1876,11 +1936,12 @@
               doc.addImage(dataUrl,'JPEG', ML+(CW-iw)/2, y, iw, ih, undefined,'MEDIUM');
               y += ih + 3;
               if (p.caption) {
-                const cleanCap = stripEmoji(p.caption);
                 sf(9,'italic',[138,132,124]);
-                doc.splitTextToSize(cleanCap, CW).forEach(cl => {
-                  doc.text(cl, PW/2, y, {align:'center'}); y += 5;
-                });
+                const capLines = hasEmoji(p.caption) ? splitMixed(doc,p.caption,CW,EM9t) : doc.splitTextToSize(stripEmoji(p.caption),CW);
+                for (const cl of capLines) {
+                  const lw = mixedW(doc,cl,EM9t);
+                  await renderMixed(doc,cl,ML+(CW-lw)/2,y,EM9t,'italic',[138,132,124]); y+=5;
+                }
               }
               y += 8;
             }
