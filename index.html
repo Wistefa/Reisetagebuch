@@ -898,8 +898,9 @@
               <button onClick={onOpenLayout} title="PDF mit Layout-Editor erstellen"
                 style={{ background:C.accentBg, border:`1px solid ${C.accent}`,
                   borderRadius:10, padding:"5px 12px", cursor:"pointer",
-                  fontSize:12, fontWeight:700, color:C.accent, fontFamily:"inherit" }}>
-                📐 PDF
+                  fontSize:12, fontWeight:700, color:C.accent, fontFamily:"inherit",
+                  display:'flex', alignItems:'center', gap:5 }}>
+                📐 PDF {entry.layout?.length > 0 && <span style={{fontSize:10, background:C.accent, color:'white', borderRadius:8, padding:'1px 5px'}}>●</span>}
               </button>
               <button onClick={onEdit} style={{ background:"none", border:"none",
                 fontSize:20, cursor:"pointer" }}>✏️</button>
@@ -976,12 +977,12 @@
     const PDF_CW     = 174;   // mm content width in PDF  (210 - 18 - 18)
     const PX_TO_MM   = PDF_CW / PREVIEW_CW;
 
-    function LayoutEditor({ entry, tripName, onClose }) {
+    function LayoutEditor({ entry, tripName, onClose, onSaveLayout }) {
       const [photoData,  setPhotoData]  = useState({});
-      const [layout,     setLayout]     = useState([]);   // [{id, photoId, afterPara, float, widthPx}]
+      const [layout,     setLayout]     = useState(entry.layout || []);
       const [selId,      setSelId]      = useState(null);
       const [generating, setGenerating] = useState(false);
-      const dragOver     = useRef(null);
+      const [saved,      setSaved]      = useState(false);
 
       const paras = (entry.text || '').split(/\n+/).filter(p => p.trim());
       const [pendingId, setPendingId] = useState(null); // Touch: ausgewähltes Foto wartet auf Platzierung
@@ -1189,6 +1190,11 @@
             <span style={{ fontSize:12, color:'rgba(255,255,255,.45)' }}>
               {fmtWeekday(entry.date)}, {fmtDayMonth(entry.date)} {fmtYear(entry.date)}{entry.location ? ' · '+entry.location : ''}
             </span>
+            <button onClick={() => { onSaveLayout(layout); setSaved(true); setTimeout(()=>setSaved(false),2000); }} style={{
+              background: saved ? 'rgba(80,180,100,.3)' : 'rgba(255,255,255,.08)',
+              color: saved ? '#6fda8a' : '#e0e0e0', border: saved ? '1px solid #6fda8a' : '1px solid rgba(255,255,255,.15)',
+              borderRadius:8, padding:'8px 16px', fontSize:13, fontWeight:600, cursor:'pointer'
+            }}>{saved ? '✓ Gespeichert' : '💾 Layout speichern'}</button>
             <button onClick={generating ? null : generatePDF} style={{
               background: generating ? 'rgba(200,135,74,.4)' : 'linear-gradient(135deg,#c8874a,#a06030)',
               color:'white', border:'none', borderRadius:8, padding:'8px 20px',
@@ -1642,6 +1648,11 @@
           entry={layoutEntry}
           tripName={trip.name}
           onClose={() => setLayoutEntry(null)}
+          onSaveLayout={savedLayout => {
+            const updated = { ...layoutEntry, layout: savedLayout };
+            onSaveEntry(updated);
+            setLayoutEntry(updated);
+          }}
         />
       );
 
