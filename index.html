@@ -211,20 +211,24 @@
 
     async function fixImageOrientation(dataUrl) {
       const orientation = readExifOrientation(dataUrl);
-      if (orientation === 1) return dataUrl;
-      // Browser (Safari/Chrome) applies EXIF orientation automatically on load,
-      // so img.naturalWidth/Height already reflect the corrected dimensions.
-      // We just bake this into a new JPEG to remove the EXIF flag for jsPDF.
+      // Always run through canvas: corrects EXIF rotation AND limits to 1600px
+      // to prevent iOS canvas memory exhaustion with multiple large photos.
       return new Promise(resolve => {
         const img = new Image();
         img.onload = () => {
+          const MAX = 1600;
+          let w = img.naturalWidth, h = img.naturalHeight;
+          if (Math.max(w, h) > MAX) {
+            if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
+            else        { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          if (orientation === 1 && w === img.naturalWidth) { resolve(dataUrl); return; }
           const canvas = document.createElement('canvas');
-          canvas.width  = img.naturalWidth;
-          canvas.height = img.naturalHeight;
+          canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext('2d');
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0);
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
           resolve(canvas.toDataURL('image/jpeg', 0.88));
         };
         img.onerror = () => resolve(dataUrl);
