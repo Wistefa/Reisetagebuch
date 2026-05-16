@@ -1,6 +1,6 @@
 ================================================================================
   Reisetagebuch – Progressive Web App (PWA)
-  Version 2.0 | Live: https://wistefa.github.io/Reisetagebuch/
+  Version 2.1 | Live: https://wistefa.github.io/Reisetagebuch/
 ================================================================================
 
 ÜBERSICHT
@@ -29,7 +29,7 @@ WAS KANN DIE APP?
    - Datum (frei wählbar)
    - Ort / Stadt (manuell eingeben)
    - Kartenvorschau: Ort per „🗺️ Karte"-Button auf OpenStreetMap anzeigen
-   - Freier Tagebuchtext (mehrzeilig)
+   - Freier Tagebuchtext (mehrzeilig, Emojis werden im PDF unterstützt)
    - Fotos aus der iPhone/iPad-Fotomediathek hinzufügen (mehrere gleichzeitig)
    - Jedes Foto mit einer Bildunterschrift versehen
 
@@ -53,6 +53,7 @@ WAS KANN DIE APP?
    - Breite per Schieberegler oder ↘-Anfasser anpassen
    - Position im Text: Buttons „▲ Höher" und „▼ Tiefer"
    - Rechtes Panel: alle Einstellungen für das ausgewählte Foto
+   - Vollständiger Text scrollbar in der Vorschau
 
    Layout speichern und wiederherstellen:
    - Button „💾 Layout speichern" sichert die Anordnung im Eintrag
@@ -64,25 +65,53 @@ WAS KANN DIE APP?
    PDF-Ausgabe:
    - Text fließt seitlich neben den Fotos (Spaltenlayout)
    - Fotos können links, rechts oder zentriert (volle Breite) platziert werden
+   - Emojis werden korrekt im PDF dargestellt
    - Seitenkopf: Datum, Wochentag, Ort
    - Seitenfußzeile: Reisename, Seitenzahl
 
-6. PDF-EXPORT – KOMPLETTE REISE
+6. DECKBLATT-EDITOR – TITELSEITE DER REISE
+   Über den Button „🖼️ Deckblatt" in der Reise-Übersicht öffnet sich der
+   Deckblatt-Editor für die Titelseite des Reise-PDFs.
+
+   Bedienung (Fotos):
+   - Linkes Panel: alle Fotos der Reise (aus allen Tageseinträgen)
+   - iPad / Touch: Foto antippen → auf der A4-Vorschau antippen →
+     Foto erscheint an dieser Stelle
+   - Mac / Desktop: Foto per Drag & Drop auf die A4-Vorschau ziehen
+   - Platzierte Fotos frei verschieben (Drag)
+   - Größe anpassen: oranges Resize-Handle (↘) oder Breiten-Slider rechts
+   - Fotozone Höhe: Schieberegler bestimmt wie viel der Seite für Fotos
+     reserviert wird (30–75%)
+   - Foto löschen: × Button (erscheint bei Auswahl)
+
+   Bedienung (Texte):
+   - Titel: Reisename (überschreibbar)
+   - Untertitel: Zielort (überschreibbar)
+   - Datum: Reisezeitraum (überschreibbar)
+   - Einleitungstext: freier Text (z.B. Zitat, Motto, Vorwort)
+
+   Layout speichern:
+   - Button „💾 Speichern" sichert Foto-Positionen und Texte
+   - Wird beim nächsten PDF-Export automatisch verwendet
+
+7. PDF-EXPORT – KOMPLETTE REISE
    Der Button „📄 PDF" in der Reise-Übersicht erstellt ein druckoptimiertes
    PDF der gesamten Reise für DIN A4:
 
    Aufbau:
-   - Deckblatt: Reisename, Zielort, Zeitraum, Anzahl Einträge
+   - Deckblatt: gestaltet im Deckblatt-Editor (Fotos + individuelle Texte)
    - Ein Kapitel pro Tageseintrag (jeweils neue Seite)
+   - Tageseinträge werden mit dem gespeicherten Layout-Editor-Layout
+     gerendert (Textfluss um Fotos, exakte Positionierung)
    - Automatische Seitenumbrüche
    - Fußzeile: Reisename, Datum, Seitenzahl
 
-7. ROUTEN-KARTE
+8. ROUTEN-KARTE
    - KML- oder GPX-Datei importieren (z.B. aus Google Maps)
    - Alle Tageseinträge mit GPS-Koordinaten werden eingezeichnet
    - Export zurück als GPX für MapOut oder andere Apps
 
-8. EXPORT / IMPORT – DATENSICHERUNG
+9. EXPORT / IMPORT – DATENSICHERUNG
    Über die Buttons 📤 / 📥 auf der Startseite:
 
    Export (📤):
@@ -93,7 +122,7 @@ WAS KANN DIE APP?
    - JSON-Datei laden und alle Daten wiederherstellen
    - Anwendungsfall: Daten zwischen Geräten teilen (iPhone ↔ iPad)
 
-9. PWA – INSTALLATION AUF DEM HOMESCREEN
+10. PWA – INSTALLATION AUF DEM HOMESCREEN
    - Safari öffnen → https://wistefa.github.io/Reisetagebuch/
    - Teilen-Symbol → „Zum Home-Bildschirm"
    - App startet dann wie eine native App (Vollbild, kein Browser-UI)
@@ -105,7 +134,7 @@ WO WERDEN DIE DATEN GESPEICHERT?
 
   DAUERHAFT AUF DEM GERÄT:
 
-  Reisen & Einträge (Text, Ort, Datum, Layout):
+  Reisen & Einträge (Text, Ort, Datum, Layout, Deckblatt):
   → Browser-localStorage, Schlüssel: "reisetagebuch_trips_v1"
                                       "reisetagebuch_entries_v1"
 
@@ -130,7 +159,9 @@ TECHNISCHE DETAILS
 - Karte:           Leaflet.js + OpenStreetMap (kostenlos, kein API-Key)
 - Geocoding:       Nominatim / OpenStreetMap (kostenlos, kein API-Key)
 - PDF-Erzeugung:   jsPDF (clientseitig im Browser, mit Float-Textfluss)
+- Emoji-Support:   Canvas-basiertes Emoji-Rendering im PDF
 - Layout-Editor:   Drag & Drop (Desktop) + Tap-to-Place (iPad/Touch)
+- Deckblatt-Ed.:   Freies Drag & Drop, Resize, editierbare Texte
 - Foto-Speicher:   IndexedDB (im Browser des Geräts)
 - PWA:             Service Worker (sw.js) für Offline-Betrieb
 - PWA-Manifest:    manifest.json (Icons, App-Name, Farben)
@@ -149,6 +180,10 @@ DATEIEN
 
 CHANGELOG
 ---------
+  v2.1  16.05.2026  Deckblatt-Editor mit freiem Drag & Drop und editierbaren
+                    Texten; PDF-Export übernimmt Layout-Editor-Layouts pro
+                    Eintrag; Emoji-Rendering im PDF; EXIF-Orientierung korrigiert;
+                    Text-Scroll-Fix im Layout-Editor; Canvas-Speicheroptimierung
   v2.0  16.05.2026  Layout-Editor mit Textfluss um Fotos, Touch-Support iPad,
                     Layout-Speicherung pro Eintrag, GitHub Pages Hosting
   v1.0  06.03.2026  Erste Version: Tagebuch, Fotos, Karte, PDF, PWA
