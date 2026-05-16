@@ -1693,7 +1693,7 @@
             if (type === 'move') return {
               ...p,
               x: Math.max(0, Math.min(1 - p.w, orig.x + dx)),
-              y: Math.max(0, Math.min(0.96, orig.y + dy)),
+              y: Math.max(0, orig.y + dy),
             };
             return { ...p, w: Math.max(0.1, Math.min(1 - orig.x, orig.w + dx)) };
           }));
@@ -1713,7 +1713,7 @@
 
       const placePhoto = (photoId, xFrac, yFrac) => {
         if (placedIds.has(photoId)) return;
-        setCoverPhotos(prev => [...prev, { id: Date.now().toString(), photoId, x: Math.max(0, Math.min(0.55, xFrac)), y: Math.max(0, Math.min(0.85, yFrac)), w: 0.45 }]);
+        setCoverPhotos(prev => [...prev, { id: Date.now().toString(), photoId, x: Math.max(0, Math.min(0.55, xFrac)), y: Math.max(0, yFrac), w: 0.45 }]);
         setPendingPhotoId(null);
       };
 
@@ -1723,7 +1723,7 @@
         const rect = coverRef.current.getBoundingClientRect();
         placePhoto(pendingPhotoId,
           (e.clientX - rect.left) / rect.width  - 0.225,
-          (e.clientY - rect.top)  / rect.height - 0.15
+          (e.clientY - rect.top)  / rect.height
         );
       };
 
@@ -1731,7 +1731,7 @@
         e.preventDefault();
         const photoId = e.dataTransfer.getData('photoId'); if (!photoId || !coverRef.current) return;
         const rect = coverRef.current.getBoundingClientRect();
-        placePhoto(photoId, (e.clientX - rect.left) / rect.width - 0.225, (e.clientY - rect.top) / rect.height - 0.15);
+        placePhoto(photoId, (e.clientX - rect.left) / rect.width - 0.225, (e.clientY - rect.top) / rect.height);
       };
 
       const inputStyle = { width:'100%', background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.12)', borderRadius:6, padding:'6px 8px', color:'#e0e0e0', fontSize:12, boxSizing:'border-box' };
@@ -1786,7 +1786,7 @@
 
                 {/* Photo zone – drag target */}
                 <div ref={coverRef}
-                  style={{ position:'relative', width:PREV_W, height:zoneH_px, background:'#e8e0d8', overflow:'hidden', cursor: pendingPhotoId ? 'crosshair' : 'default' }}
+                  style={{ position:'relative', width:PREV_W, minHeight:zoneH_px, background:'#e8e0d8', cursor: pendingPhotoId ? 'crosshair' : 'default' }}
                   onDrop={onDrop} onDragOver={e => e.preventDefault()} onClick={onZoneClick}
                 >
                   {coverPhotos.length === 0 && (
