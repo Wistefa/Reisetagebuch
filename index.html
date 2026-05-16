@@ -270,20 +270,26 @@
     }
     function splitMixed(doc, text, maxW, emMm) {
       if (!text) return [];
-      const spW = doc.getTextWidth(' '), lines=[], words=text.split(' ');
-      let line='', lw=0;
-      for (const word of words) {
-        const ww = mixedW(doc, word, emMm);
-        if (line && lw+spW+ww > maxW) { lines.push(line); line=word; lw=ww; }
-        else { if(line){line+=' ';lw+=spW;} line+=word; lw+=ww; }
+      const spW = doc.getTextWidth(' '), result = [];
+      // Zuerst nach Zeilenumbrüchen splitten, dann jede Zeile umbrechen
+      for (const para of text.split(/\r?\n/)) {
+        const words = para.split(' ').filter(w => w !== '');
+        if (!words.length) continue;
+        let line='', lw=0;
+        for (const word of words) {
+          const ww = mixedW(doc, word, emMm);
+          if (line && lw+spW+ww > maxW) { result.push(line); line=word; lw=ww; }
+          else { if(line){line+=' ';lw+=spW;} line+=word; lw+=ww; }
+        }
+        if (line) result.push(line);
       }
-      if (line) lines.push(line);
-      return lines.length ? lines : [''];
+      return result.length ? result : [''];
     }
     async function renderMixed(doc, text, x, y, emMm, style='normal', col=[28,25,22]) {
       doc.setFont('helvetica', style); doc.setTextColor(...col);
       let cx=x, buf='';
-      const flush=()=>{ if(!buf)return; doc.text(buf,cx,y); cx+=doc.getTextWidth(buf); buf=''; };
+      // Newlines in Einzelzeilen haben hier nichts zu suchen – sicherheitshalber entfernen
+      const flush=()=>{ if(!buf)return; const t=buf.replace(/\n/g,''); if(t){doc.text(t,cx,y);cx+=doc.getTextWidth(t);} buf=''; };
       for (const ch of [...(text||'')]) {
         if (/[︀-️‍]/.test(ch)) continue;
         if (/\p{Extended_Pictographic}/u.test(ch)) {
