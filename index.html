@@ -1306,18 +1306,18 @@
           };
 
           // Before-all photos (afterPara === -1)
-          for (const it of (byPara[-1]||[])) await renderPhoto(it, y);
+          for (const it of (byPara[-1]||[])) { const ny = await renderPhoto(it, y); if (ny > y) y = ny; }
 
           // Paragraphs
           for (let i=0; i<paras.length; i++) {
             const items = byPara[i]||[];
             await renderPara(paras[i], items[0]||null);
             // extra photos at same position (2nd, 3rd…)
-            for (let j=1; j<items.length; j++) await renderPhoto(items[j], y);
+            for (let j=1; j<items.length; j++) { const ny = await renderPhoto(items[j], y); if (ny > y) y = ny; }
           }
 
           // After-last photos (afterPara === paras.length)
-          for (const it of (byPara[paras.length]||[])) await renderPhoto(it, y);
+          for (const it of (byPara[paras.length]||[])) { const ny = await renderPhoto(it, y); if (ny > y) y = ny; }
 
           // Footer
           const total = doc.internal.getNumberOfPages();
@@ -1432,8 +1432,15 @@
                 <div style={{ padding:'20px 40px 32px', minHeight:700, fontSize:10.5, lineHeight:1.75, position:'relative' }}
                   onClick={e => { if (e.target === e.currentTarget) setSelId(null); }}
                 >
-                  {/* Drop zone before first paragraph */}
+                  {/* Drop zone + Fotos vor dem ersten Absatz (afterPara === -1) */}
                   <DropZone afterPara={-1} onDrop={placePhoto} layout={layout} paras={paras} pendingId={pendingId} />
+                  {layout.filter(l => l.afterPara===-1).map(item => (
+                    <FloatPhoto key={item.id} item={item} photoData={photoData}
+                      caption={(entry.photos||[]).find(p=>p.id===item.photoId)?.caption}
+                      selected={selId===item.id} onSelect={() => setSelId(item.id)}
+                      onFloat={fl => updItem(item.id,{float:fl})} onDelete={() => delItem(item.id)}
+                      onResize={w => updItem(item.id,{widthPx:w})} />
+                  ))}
 
                   {paras.map((text, pi) => {
                     const items = layout.filter(l => l.afterPara===pi);
@@ -1454,6 +1461,18 @@
                       </div>
                     );
                   })}
+
+                  {/* Fotos + Drop zone nach dem letzten Absatz (afterPara === paras.length) */}
+                  <div style={{ clear:'both' }}>
+                    {layout.filter(l => l.afterPara===paras.length).map(item => (
+                      <FloatPhoto key={item.id} item={item} photoData={photoData}
+                        caption={(entry.photos||[]).find(p=>p.id===item.photoId)?.caption}
+                        selected={selId===item.id} onSelect={() => setSelId(item.id)}
+                        onFloat={fl => updItem(item.id,{float:fl})} onDelete={() => delItem(item.id)}
+                        onResize={w => updItem(item.id,{widthPx:w})} />
+                    ))}
+                    <DropZone afterPara={paras.length} onDrop={placePhoto} layout={layout} paras={paras} pendingId={pendingId} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -2142,13 +2161,13 @@
               // Mit gespeichertem Layout rendern
               const byPara = {};
               eLayout.forEach(it => { (byPara[it.afterPara]||(byPara[it.afterPara]=[])).push(it); });
-              for (const it of (byPara[-1]||[])) await renderEPhoto(it, y);
+              for (const it of (byPara[-1]||[])) { const ny = await renderEPhoto(it, y); if (ny > y) y = ny; }
               for (let i=0; i<eParas.length; i++) {
                 const items = byPara[i]||[];
                 await renderEPara(eParas[i], items[0]||null);
-                for (let j=1; j<items.length; j++) await renderEPhoto(items[j], y);
+                for (let j=1; j<items.length; j++) { const ny = await renderEPhoto(items[j], y); if (ny > y) y = ny; }
               }
-              for (const it of (byPara[eParas.length]||[])) await renderEPhoto(it, y);
+              for (const it of (byPara[eParas.length]||[])) { const ny = await renderEPhoto(it, y); if (ny > y) y = ny; }
               // Nicht platzierte Fotos am Ende anfügen
               const placedIds = new Set(eLayout.map(l=>l.photoId));
               for (const p of (entry.photos||[])) {
