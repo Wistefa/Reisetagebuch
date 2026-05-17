@@ -1310,58 +1310,65 @@
               y+=3; return;
             }
 
-            // Mehrere Side-Floats: links und rechts nebeneinander, Text dazwischen/darunter
-            const leftItems   = sideItems.filter(i => i.float === 'left');
-            const rightItems  = sideItems.filter(i => i.float === 'right');
-            const loadedLeft  = (await Promise.all(leftItems.map(loadPhotoData))).filter(Boolean);
-            const loadedRight = (await Promise.all(rightItems.map(loadPhotoData))).filter(Boolean);
+            // Mehrere Side-Floats: CSS-getreu horizontal (RIGHT: rechts→links, LEFT: links→rechts)
+            const allRight2 = sideItems.filter(i => i.float === 'right');
+            const allLeft2  = sideItems.filter(i => i.float === 'left');
+            const [rawR2, rawL2] = await Promise.all([
+              Promise.all(allRight2.map(loadPhotoData)),
+              Promise.all(allLeft2.map(loadPhotoData)),
+            ]);
+            const loadedR2 = rawR2.filter(Boolean);
+            const loadedL2 = rawL2.filter(Boolean);
 
-            const leftColW  = loadedLeft.length  ? Math.max(...loadedLeft.map(p=>p.photoW))  : 0;
-            const rightColW = loadedRight.length ? Math.max(...loadedRight.map(p=>p.photoW)) : 0;
-            const leftColH  = loadedLeft.reduce((s,p)=>s+p.totalH, 0);
-            const rightColH = loadedRight.reduce((s,p)=>s+p.totalH, 0);
-            const totalH    = Math.max(leftColH, rightColH);
+            const rawTotalW2 = loadedR2.reduce((s,p)=>s+p.photoW,0)+(loadedR2.length?loadedR2.length*PHOTO_GAP:0)
+                             + loadedL2.reduce((s,p)=>s+p.photoW,0)+(loadedL2.length?loadedL2.length*PHOTO_GAP:0);
+            const scl2 = rawTotalW2 > CW*0.95 ? (CW*0.95)/rawTotalW2 : 1;
 
-            chk(Math.min(totalH, 60)+LH);
+            const placedR2=[]; let rx2=ML+CW;
+            for (const p of loadedR2) {
+              const w=p.photoW*scl2,h=p.photoH*scl2,cH=p.capLines.length?p.capLines.length*4.5+2:0;
+              rx2-=w; placedR2.push({...p,x:rx2,photoW:w,photoH:h,totalH:h+cH+3}); rx2-=PHOTO_GAP;
+            }
+            const placedL2=[]; let lx2=ML;
+            for (const p of loadedL2) {
+              const w=p.photoW*scl2,h=p.photoH*scl2,cH=p.capLines.length?p.capLines.length*4.5+2:0;
+              placedL2.push({...p,x:lx2,photoW:w,photoH:h,totalH:h+cH+3}); lx2+=w+PHOTO_GAP;
+            }
+
+            const textX2    = lx2;
+            const textEndX2 = placedR2.length ? Math.min(...placedR2.map(p=>p.x)) : ML+CW;
+            const textW2    = textEndX2 - textX2 - PHOTO_GAP;
+            const rowH2     = Math.max(0,...[...placedL2,...placedR2].map(p=>p.totalH));
+
+            chk(Math.min(rowH2,60)+LH);
             const blockStart = y;
 
-            let lyL = blockStart;
-            for (const p of loadedLeft) {
-              doc.addImage(p.url,'JPEG',ML,lyL,p.photoW,p.photoH,undefined,'MEDIUM');
-              if (p.capLines.length) { sf(8,'italic',[138,132,124]); p.capLines.forEach((cl,ci)=>doc.text(cl,ML+p.photoW/2,lyL+p.photoH+2+ci*4.5,{align:'center'})); }
-              lyL += p.totalH;
-            }
-            let lyR = blockStart;
-            for (const p of loadedRight) {
-              const rx = ML+CW-p.photoW;
-              doc.addImage(p.url,'JPEG',rx,lyR,p.photoW,p.photoH,undefined,'MEDIUM');
-              if (p.capLines.length) { sf(8,'italic',[138,132,124]); p.capLines.forEach((cl,ci)=>doc.text(cl,rx+p.photoW/2,lyR+p.photoH+2+ci*4.5,{align:'center'})); }
-              lyR += p.totalH;
+            for (const p of [...placedL2,...placedR2]) {
+              doc.addImage(p.url,'JPEG',p.x,blockStart,p.photoW,p.photoH,undefined,'MEDIUM');
+              if (p.capLines.length) { sf(8,'italic',[138,132,124]); p.capLines.forEach((cl,ci)=>doc.text(cl,p.x+p.photoW/2,blockStart+p.photoH+2+ci*4.5,{align:'center'})); }
             }
 
-            const midX = ML + leftColW + PHOTO_GAP;
-            const midW = CW - leftColW - rightColW - PHOTO_GAP*2;
-            const photoEndY = blockStart + totalH;
+            const photoEndY = blockStart+rowH2;
 
-            if (text && midW >= 25) {
-              const sideLines = hasEmoji(text) ? splitMixed(doc,text,midW-1,EM11) : doc.splitTextToSize(text,midW-1);
+            if (text && textW2 >= 25) {
+              const sideLines = hasEmoji(text)?splitMixed(doc,text,textW2-1,EM11):doc.splitTextToSize(text,textW2-1);
               let lt=blockStart, si=0;
               while (si < sideLines.length && lt+LH <= photoEndY+LH) {
-                sf(11,'normal',[28,25,22]); await renderMixed(doc,sideLines[si],midX,lt,EM11); lt+=LH; si++;
+                sf(11,'normal',[28,25,22]); await renderMixed(doc,sideLines[si],textX2,lt,EM11); lt+=LH; si++;
               }
               y = Math.max(lt, photoEndY);
               let charOffset=0;
               for (let k=0; k<si; k++) { charOffset+=sideLines[k].length; while (charOffset<text.length&&/\s/.test(text[charOffset])) charOffset++; }
               const remainText = text.slice(charOffset);
               if (remainText) {
-                const remLines = hasEmoji(remainText) ? splitMixed(doc,remainText,CW-2,EM11) : doc.splitTextToSize(remainText,CW-2);
+                const remLines = hasEmoji(remainText)?splitMixed(doc,remainText,CW-2,EM11):doc.splitTextToSize(remainText,CW-2);
                 for (const l of remLines) { chk(LH); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11); y+=LH; }
               }
             } else {
               y = photoEndY;
               if (text) {
                 sf(11,'normal',[28,25,22]);
-                const lines = hasEmoji(text) ? splitMixed(doc,text,CW-2,EM11) : doc.splitTextToSize(text,CW-2);
+                const lines = hasEmoji(text)?splitMixed(doc,text,CW-2,EM11):doc.splitTextToSize(text,CW-2);
                 for (const l of lines) { chk(LH); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11); y+=LH; }
               }
             }
@@ -2234,60 +2241,67 @@
                 y+=3; return;
               }
 
-              // Mehrere Side-Floats: links und rechts nebeneinander, Text darunter/dazwischen
-              const leftItems  = sideItems.filter(i => i.float === 'left');
-              const rightItems = sideItems.filter(i => i.float === 'right');
-              const loadedLeft  = (await Promise.all(leftItems.map(loadEPhotoData))).filter(Boolean);
-              const loadedRight = (await Promise.all(rightItems.map(loadEPhotoData))).filter(Boolean);
+              // Mehrere Side-Floats: CSS-getreu horizontal anordnen
+              // RIGHT-Floats: von rechts nach links (erstes DOM-Element = ganz rechts)
+              // LEFT-Floats:  von links nach rechts (erstes DOM-Element = ganz links)
+              const allRight = sideItems.filter(i => i.float === 'right');
+              const allLeft  = sideItems.filter(i => i.float === 'left');
+              const [rawR, rawL] = await Promise.all([
+                Promise.all(allRight.map(loadEPhotoData)),
+                Promise.all(allLeft.map(loadEPhotoData)),
+              ]);
+              const loadedR = rawR.filter(Boolean);
+              const loadedL = rawL.filter(Boolean);
 
-              const leftColW  = loadedLeft.length  ? Math.max(...loadedLeft.map(p=>p.photoW))  : 0;
-              const rightColW = loadedRight.length ? Math.max(...loadedRight.map(p=>p.photoW)) : 0;
-              const leftColH  = loadedLeft.reduce((s,p)=>s+p.totalH, 0);
-              const rightColH = loadedRight.reduce((s,p)=>s+p.totalH, 0);
-              const totalH = Math.max(leftColH, rightColH);
+              // Gesamtbreite ermitteln; ggf. skalieren
+              const rawTotalW = loadedR.reduce((s,p)=>s+p.photoW,0) + (loadedR.length?loadedR.length*PGAP:0)
+                              + loadedL.reduce((s,p)=>s+p.photoW,0) + (loadedL.length?loadedL.length*PGAP:0);
+              const scl = rawTotalW > CW*0.95 ? (CW*0.95)/rawTotalW : 1;
 
-              newPageIfNeeded(Math.min(totalH, 60)+LHe);
+              // Positionen: RIGHT von rechts nach links
+              const placedR = []; let rx = ML+CW;
+              for (const p of loadedR) {
+                const w=p.photoW*scl, h=p.photoH*scl, cH=p.capLines.length?p.capLines.length*4.5+2:0;
+                rx-=w; placedR.push({...p,x:rx,photoW:w,photoH:h,totalH:h+cH+3}); rx-=PGAP;
+              }
+              // Positionen: LEFT von links nach rechts
+              const placedL = []; let lx = ML;
+              for (const p of loadedL) {
+                const w=p.photoW*scl, h=p.photoH*scl, cH=p.capLines.length?p.capLines.length*4.5+2:0;
+                placedL.push({...p,x:lx,photoW:w,photoH:h,totalH:h+cH+3}); lx+=w+PGAP;
+              }
+
+              // Textbereich: zwischen linker Spalte und linkstem Right-Float
+              const textX    = lx;
+              const textEndX = placedR.length ? Math.min(...placedR.map(p=>p.x)) : ML+CW;
+              const textW    = textEndX - textX - PGAP;
+              const rowH     = Math.max(0, ...[...placedL,...placedR].map(p=>p.totalH));
+
+              newPageIfNeeded(Math.min(rowH,60)+LHe);
               const blockStart = y;
 
-              let lyL = blockStart;
-              for (const p of loadedLeft) {
-                doc.addImage(p.url,'JPEG',ML,lyL,p.photoW,p.photoH,undefined,'MEDIUM');
-                if (p.capLines.length) { sf(8,'italic',[138,132,124]); p.capLines.forEach((cl,ci)=>doc.text(cl,ML+p.photoW/2,lyL+p.photoH+2+ci*4.5,{align:'center'})); }
-                lyL += p.totalH;
-              }
-              let lyR = blockStart;
-              for (const p of loadedRight) {
-                const rx = ML+CW-p.photoW;
-                doc.addImage(p.url,'JPEG',rx,lyR,p.photoW,p.photoH,undefined,'MEDIUM');
-                if (p.capLines.length) { sf(8,'italic',[138,132,124]); p.capLines.forEach((cl,ci)=>doc.text(cl,rx+p.photoW/2,lyR+p.photoH+2+ci*4.5,{align:'center'})); }
-                lyR += p.totalH;
+              // Alle Fotos zeichnen
+              for (const p of [...placedL,...placedR]) {
+                doc.addImage(p.url,'JPEG',p.x,blockStart,p.photoW,p.photoH,undefined,'MEDIUM');
+                if (p.capLines.length) { sf(8,'italic',[138,132,124]); p.capLines.forEach((cl,ci)=>doc.text(cl,p.x+p.photoW/2,blockStart+p.photoH+2+ci*4.5,{align:'center'})); }
               }
 
-              const midX = ML + leftColW + PGAP;
-              const midW = CW - leftColW - rightColW - PGAP*2;
-              const photoEndY = blockStart + totalH;
+              const photoEndY = blockStart+rowH;
 
-              if (text && midW >= 25) {
-                const sideLines = hasEmoji(text) ? splitMixed(doc,text,midW-1,EM11e) : doc.splitTextToSize(text,midW-1);
+              if (text && textW >= 25) {
+                const sl = hasEmoji(text)?splitMixed(doc,text,textW-1,EM11e):doc.splitTextToSize(text,textW-1);
                 let lt=blockStart, si=0;
-                while (si < sideLines.length && lt+LHe <= photoEndY+LHe) {
-                  sf(11,'normal',[28,25,22]); await renderMixed(doc,sideLines[si],midX,lt,EM11e); lt+=LHe; si++;
+                while (si<sl.length && lt+LHe<=photoEndY+LHe) {
+                  sf(11,'normal',[28,25,22]); await renderMixed(doc,sl[si],textX,lt,EM11e); lt+=LHe; si++;
                 }
                 y = Math.max(lt, photoEndY);
-                let charOffset=0;
-                for (let k=0; k<si; k++) { charOffset+=sideLines[k].length; while (charOffset<text.length&&/\s/.test(text[charOffset])) charOffset++; }
-                const remainText = text.slice(charOffset);
-                if (remainText) {
-                  const remLines = hasEmoji(remainText) ? splitMixed(doc,remainText,CW-2,EM11e) : doc.splitTextToSize(remainText,CW-2);
-                  for (const l of remLines) { newPageIfNeeded(LHe); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11e); y+=LHe; }
-                }
+                let co=0;
+                for (let k=0;k<si;k++) { co+=sl[k].length; while(co<text.length&&/\s/.test(text[co])) co++; }
+                const rem=text.slice(co);
+                if (rem) { const rl=hasEmoji(rem)?splitMixed(doc,rem,CW-2,EM11e):doc.splitTextToSize(rem,CW-2); for (const l of rl) { newPageIfNeeded(LHe); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11e); y+=LHe; } }
               } else {
                 y = photoEndY;
-                if (text) {
-                  sf(11,'normal',[28,25,22]);
-                  const lines = hasEmoji(text) ? splitMixed(doc,text,CW-2,EM11e) : doc.splitTextToSize(text,CW-2);
-                  for (const l of lines) { newPageIfNeeded(LHe); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11e); y+=LHe; }
-                }
+                if (text) { sf(11,'normal',[28,25,22]); const ll=hasEmoji(text)?splitMixed(doc,text,CW-2,EM11e):doc.splitTextToSize(text,CW-2); for (const l of ll) { newPageIfNeeded(LHe); sf(11,'normal',[28,25,22]); await renderMixed(doc,l,ML,y,EM11e); y+=LHe; } }
               }
               y+=3;
             };
