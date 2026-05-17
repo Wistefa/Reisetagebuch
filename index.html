@@ -1376,7 +1376,7 @@
           };
 
           // Before-all photos (afterPara === -1)
-          for (const it of (byPara[-1]||[])) { const ny = await renderPhoto(it, y); if (ny > y) y = ny; }
+          if ((byPara[-1]||[]).length > 0) await renderPara('', byPara[-1]);
 
           // Paragraphs
           for (let i=0; i<paras.length; i++) {
@@ -1384,7 +1384,7 @@
           }
 
           // After-last photos (afterPara === paras.length)
-          for (const it of (byPara[paras.length]||[])) { const ny = await renderPhoto(it, y); if (ny > y) y = ny; }
+          if ((byPara[paras.length]||[]).length > 0) await renderPara('', byPara[paras.length]);
 
           // Footer
           const total = doc.internal.getNumberOfPages();
@@ -2310,11 +2310,11 @@
               // Mit gespeichertem Layout rendern
               const byPara = {};
               eLayout.forEach(it => { (byPara[it.afterPara]||(byPara[it.afterPara]=[])).push(it); });
-              for (const it of (byPara[-1]||[])) { const ny = await renderEPhoto(it, y); if (ny > y) y = ny; }
+              if ((byPara[-1]||[]).length > 0) await renderEPara('', byPara[-1]);
               for (let i=0; i<eParas.length; i++) {
                 await renderEPara(eParas[i], byPara[i]||[]);
               }
-              for (const it of (byPara[eParas.length]||[])) { const ny = await renderEPhoto(it, y); if (ny > y) y = ny; }
+              if ((byPara[eParas.length]||[]).length > 0) await renderEPara('', byPara[eParas.length]);
               // Nicht platzierte Fotos am Ende anfügen
               const placedIds = new Set(eLayout.map(l=>l.photoId));
               for (const p of (entry.photos||[])) {
