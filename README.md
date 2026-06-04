@@ -37,8 +37,11 @@ Individuelle Titelseite für das Reise-PDF:
 - GPX-Export für MapOut und andere Apps
 
 ### Export / Import
-- Alle Daten (Reisen, Einträge, Fotos) als JSON sichern
+- **💾 FAB-Button** – Backup mit eigenem Dateinamen als JSON sichern; bei iCloud-Datenpool-Verbindung direkt in den Ordner
+- **iCloud Datenpool** – Ordner einmalig verbinden, Speichern schreibt direkt in iCloud (Chrome/Edge)
+- Laden aus JSON-Datei – stellt Reisen, Einträge und Routen wieder her
 - Import auf anderen Geräten möglich (iPhone ↔ iPad)
+- **← Apps** – Zurück zur wistefa.github.io Übersicht
 
 ### PWA
 - Installation auf dem Home-Bildschirm (Safari → Teilen → Zum Home-Bildschirm)
@@ -53,6 +56,7 @@ Individuelle Titelseite für das Reise-PDF:
 | Reisen & Einträge (Text, Layout) | `localStorage` |
 | Fotos | `IndexedDB` |
 | Kein Server, keine Cloud | Alles bleibt auf dem Gerät |
+| iCloud Datenpool (opt.) | FileSystem Access API → iCloud-Ordner (Chrome/Edge) |
 
 > **Tipp:** Regelmäßiger JSON-Export in iCloud Drive schützt vor Datenverlust beim Löschen des Browser-Cache.
 
@@ -78,6 +82,7 @@ Individuelle Titelseite für das Reise-PDF:
 
 | Version | Datum | Änderungen |
 |---|---|---|
+| 2.2 | 04.06.2026 | ← Apps Button, iCloud Datenpool, FAB-Panel mit Dateiname-Input |
 | 2.1 | 16.05.2026 | Deckblatt-Editor (Drag & Drop, editierbare Texte), PDF nutzt Layout-Editor-Layouts, Emoji-PDF-Support, EXIF-Fix, Speicheroptimierung |
 | 2.0 | 16.05.2026 | Layout-Editor mit Textfluss, Touch-Support, Layout-Speicherung, GitHub Pages |
 | 1.0 | 06.03.2026 | Erste Version: Tagebuch, Fotos, Karte, PDF, PWA |
