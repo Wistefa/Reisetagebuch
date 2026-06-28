@@ -738,6 +738,7 @@
     // ─────────────────────────────────────────────────────
     function EntryEdit({ entry, tripId, onSave, onClose, defaultDate }) {
       const [date,     setDate]     = useState(entry?.date     || defaultDate || todayISO());
+      const [dateTo,   setDateTo]   = useState(entry?.dateTo   || "");
       const [location, setLocation] = useState(entry?.location || "");
       const [lat,      setLat]      = useState(entry?.lat      || null);
       const [lng,      setLng]      = useState(entry?.lng      || null);
@@ -791,7 +792,7 @@
       const save = () => {
         if (!date) return;
         const cleanLinks = links.filter(l => l.url.trim());
-        onSave({ id: entry?.id||uid(), tripId, date, location, lat, lng,
+        onSave({ id: entry?.id||uid(), tripId, date, dateTo: dateTo||undefined, location, lat, lng,
           text, photos, links: cleanLinks, createdAt: entry?.createdAt||Date.now() });
         onClose();
       };
@@ -927,7 +928,21 @@
       return (
         <Sheet title={entry ? "Eintrag bearbeiten" : "Neuer Eintrag"} onClose={onClose}>
           <Field label="Datum">
-            <Input type="date" value={date} onChange={setDate} />
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:C.textSec,
+                  textTransform:"uppercase", letterSpacing:0.7, marginBottom:4 }}>Anreise</div>
+                <Input type="date" value={date} onChange={setDate} />
+              </div>
+              <div style={{ color:C.textSec, fontSize:18, paddingTop:20 }}>→</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:C.textSec,
+                  textTransform:"uppercase", letterSpacing:0.7, marginBottom:4 }}>Abreise</div>
+                <Input type="date" value={dateTo}
+                  onChange={v => setDateTo(v)}
+                  min={date || undefined} />
+              </div>
+            </div>
           </Field>
 
           <Field label="Ort / Stadt">
@@ -1109,14 +1124,14 @@
             {/* Datum groß */}
             <div style={{ fontSize:12, fontWeight:700, color:C.accent,
               textTransform:"uppercase", letterSpacing:1.2, marginBottom:4 }}>
-              {fmtWeekday(entry.date)}
+              {fmtWeekday(entry.date)}{entry.dateTo ? ' – ' + fmtWeekday(entry.dateTo) : ''}
             </div>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:38,
               fontWeight:800, color:C.text, lineHeight:1.05, marginBottom:4 }}>
-              {fmtDayMonth(entry.date)}
+              {fmtDayMonth(entry.date)}{entry.dateTo ? ' – ' + fmtDayMonth(entry.dateTo) : ''}
             </div>
             <div style={{ fontSize:15, color:C.textSec, marginBottom:16 }}>
-              {fmtYear(entry.date)}
+              {fmtYear(entry.date)}{entry.dateTo && fmtYear(entry.dateTo) !== fmtYear(entry.date) ? ' – ' + fmtYear(entry.dateTo) : ''}
             </div>
 
             {/* Ort */}
@@ -1748,11 +1763,11 @@
           <div style={{ padding:"14px 16px" }}>
             <div style={{ fontSize:11, fontWeight:700, color:C.accent,
               textTransform:"uppercase", letterSpacing:0.9, marginBottom:3 }}>
-              {fmtWeekday(entry.date)}
+              {fmtWeekday(entry.date)}{entry.dateTo ? ' – ' + fmtWeekday(entry.dateTo) : ''}
             </div>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:21,
               fontWeight:700, color:C.text, marginBottom:entry.location?4:6 }}>
-              {fmtDayMonth(entry.date)}
+              {fmtDayMonth(entry.date)}{entry.dateTo ? ' – ' + fmtDayMonth(entry.dateTo) : ''}
             </div>
             {entry.location && (
               <div style={{ fontSize:13, color:C.textSec, marginBottom:entry.text?6:0 }}>
@@ -2570,7 +2585,7 @@
               tripId={trip.id}
               onSave={onSaveEntry}
               onClose={() => { setShowForm(false); setEditEntry(null); }}
-              defaultDate={!editEntry && tripEntries.length > 0 ? tripEntries[tripEntries.length - 1].date : undefined}
+              defaultDate={!editEntry && tripEntries.length > 0 ? (tripEntries[tripEntries.length - 1].dateTo || tripEntries[tripEntries.length - 1].date) : undefined}
             />
           )}
 
