@@ -743,6 +743,7 @@
       const [lng,      setLng]      = useState(entry?.lng      || null);
       const [text,     setText]     = useState(entry?.text     || "");
       const [photos,   setPhotos]   = useState(entry?.photos   || []);
+      const [links,    setLinks]    = useState(entry?.links    || []);
       const [photoData,setPhotoData]= useState({});
       const [geocoding,setGeocoding]= useState(false);
       const fileRef = useRef(null);
@@ -783,10 +784,15 @@
       const updCaption = (id, caption) =>
         setPhotos(prev => prev.map(p => p.id===id ? {...p, caption} : p));
 
+      const addLink = () => setLinks(prev => [...prev, { label:'', url:'' }]);
+      const updLink = (i, field, val) => setLinks(prev => prev.map((l,idx) => idx===i ? {...l,[field]:val} : l));
+      const delLink = i => setLinks(prev => prev.filter((_,idx) => idx!==i));
+
       const save = () => {
         if (!date) return;
+        const cleanLinks = links.filter(l => l.url.trim());
         onSave({ id: entry?.id||uid(), tripId, date, location, lat, lng,
-          text, photos, createdAt: entry?.createdAt||Date.now() });
+          text, photos, links: cleanLinks, createdAt: entry?.createdAt||Date.now() });
         onClose();
       };
 
@@ -944,6 +950,32 @@
           <Field label="Tagebucheintrag">
             <Textarea value={text} onChange={setText}
               placeholder="Was hast du heute erlebt, gesehen, gefühlt…" rows={8} />
+          </Field>
+
+          <Field label="Links">
+            {links.map((l,i) => (
+              <div key={i} style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
+                <input value={l.label} onChange={e => updLink(i,'label',e.target.value)}
+                  placeholder="Bezeichnung (z.B. Hotel)"
+                  style={{ width:120, flexShrink:0, background:"#F7F4EF", border:`1px solid ${C.border}`,
+                    borderRadius:10, padding:"9px 11px", fontSize:14, color:C.text,
+                    outline:"none", fontFamily:"inherit" }} />
+                <input value={l.url} onChange={e => updLink(i,'url',e.target.value)}
+                  placeholder="https://…" type="url"
+                  style={{ flex:1, background:"#F7F4EF", border:`1px solid ${C.border}`,
+                    borderRadius:10, padding:"9px 11px", fontSize:14, color:C.text,
+                    outline:"none", fontFamily:"inherit" }} />
+                <button onClick={() => delLink(i)} style={{
+                  background:"none", border:"none", fontSize:18, cursor:"pointer",
+                  color:C.textSec, padding:"4px 2px", flexShrink:0 }}>✕</button>
+              </div>
+            ))}
+            <button onClick={addLink} style={{
+              width:"100%", padding:"10px 14px", borderRadius:12,
+              border:`2px dashed ${C.border}`, background:"transparent",
+              color:C.textSec, cursor:"pointer", fontSize:14, fontFamily:"inherit",
+              display:"flex", alignItems:"center", justifyContent:"center", gap:8
+            }}>🔗 Link hinzufügen</button>
           </Field>
 
           <Field label="Fotos">
@@ -1124,7 +1156,22 @@
               </div>
             )}
 
-            {!entry.text && !entry.photos?.length && (
+            {entry.links?.length > 0 && (
+              <div style={{ marginTop:18, display:"flex", flexWrap:"wrap", gap:8 }}>
+                {entry.links.map((l,i) => (
+                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display:"inline-flex", alignItems:"center", gap:6,
+                      background:"#F7F4EF", border:`1px solid ${C.border}`,
+                      borderRadius:20, padding:"7px 14px", textDecoration:"none",
+                      color:C.accent, fontSize:14, fontFamily:"'DM Sans',sans-serif",
+                      fontWeight:500 }}>
+                    🔗 {l.label || new URL(l.url).hostname.replace('www.','')}
+                  </a>
+                ))}
+              </div>
+            )}
+
+            {!entry.text && !entry.photos?.length && !(entry.links?.length) && (
               <div style={{ color:C.textSec, fontSize:15, marginTop:24, textAlign:"center" }}>
                 Noch kein Inhalt – tippe auf ✏️ um den Eintrag zu bearbeiten.
               </div>
