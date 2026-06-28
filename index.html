@@ -736,8 +736,8 @@
     // ─────────────────────────────────────────────────────
     //  EINTRAG BEARBEITEN
     // ─────────────────────────────────────────────────────
-    function EntryEdit({ entry, tripId, onSave, onClose }) {
-      const [date,     setDate]     = useState(entry?.date     || todayISO());
+    function EntryEdit({ entry, tripId, onSave, onClose, defaultDate }) {
+      const [date,     setDate]     = useState(entry?.date     || defaultDate || todayISO());
       const [location, setLocation] = useState(entry?.location || "");
       const [lat,      setLat]      = useState(entry?.lat      || null);
       const [lng,      setLng]      = useState(entry?.lng      || null);
@@ -2523,6 +2523,7 @@
               tripId={trip.id}
               onSave={onSaveEntry}
               onClose={() => { setShowForm(false); setEditEntry(null); }}
+              defaultDate={!editEntry && tripEntries.length > 0 ? tripEntries[tripEntries.length - 1].date : undefined}
             />
           )}
 
